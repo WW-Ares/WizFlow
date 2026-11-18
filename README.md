@@ -272,6 +272,11 @@ python tests\test_monitor_group.py
 - 回放会发送真实键鼠事件，脚本中不要包含无法收场的组合。
 - 系统策略强制锁屏/安全桌面无法绕过。
 
+## 贡献者
+
+- **WW-Ares** — 项目发起、需求、测试与发布
+- **Codex (OpenAI)** — 架构设计、代码实现、测试与文档
+
 ## 许可证
 
 WizFlow 以 **GNU General Public License v2.0** 发布，完整文本见 [LICENSE](LICENSE)。
