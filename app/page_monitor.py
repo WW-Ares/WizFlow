@@ -1004,6 +1004,11 @@ class MonitorPageMixin:
         if not g.get("rules"):
             self._toast("规则集为空，请先添加图标规则", "warn")
             return
+        resident = [r for r in g.get("rules", [])
+                    if r.get("resident") and r.get("enabled", True)]
+        if resident:
+            self._toast("注意：%d 条规则为常驻，脚本播放时可能与后台同时触发"
+                        % len(resident), "warn")
         if not self.script_path:
             self.script_path = new_script_path()
             self._refresh_scripts(select=self.script_path)

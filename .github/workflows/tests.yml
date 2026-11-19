@@ -1,0 +1,30 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile
+        run: python -m compileall -q app core main.py config.py
+      - name: Core tests
+        run: python -X utf8 tests/test_core.py
+      - name: Monitor group tests
+        run: python -X utf8 tests/test_monitor_group.py
+      - name: Selftest
+        run: python -X utf8 main.py --selftest
