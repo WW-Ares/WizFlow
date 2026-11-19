@@ -73,6 +73,10 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self._selected_icon = ""
 
         self.ui_queue: queue.Queue = queue.Queue()
+        self.input_queue: queue.Queue = queue.Queue()
+        self.input_stop = threading.Event()
+        threading.Thread(target=self._input_worker, name="wizflow-input",
+                         daemon=True).start()
 
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(1, weight=1)
@@ -220,7 +224,26 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
                              fg_color=color, hover_color=theme.LINE, text_color=text_color,
                              corner_radius=8, font=font or (theme.FONT, theme.fs(10)))
 
+    def _input_worker(self):
+        while not self.input_stop.is_set():
+            try:
+                item = self.input_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            if item is None:
+                break
+            act, center = item
+            try:
+                execute_input(act, center, dry_run=False, stop_event=self.input_stop)
+            except Exception as exc:
+                log("后台输入动作失败: %s" % exc, "WARN")
+
     def _show_page(self, key: str):
+        if getattr(self, "page", "") == "monitor" and key != "monitor":
+            try:
+                self._pause_scene_preview()
+            except Exception:
+                pass
         for k, b in self.nav.items():
             b.configure(fg_color=theme.CARD2 if k == key else "transparent",
                         text_color=theme.ACCENT if k == key else theme.MUTED)
@@ -449,9 +472,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             center = act.get("_center") or (0, 0)
             item = dict(act)
             item.pop("_center", None)
-            threading.Thread(target=execute_input,
-                             args=(item, center), kwargs={"dry_run": False},
-                             daemon=True).start()
+            self.input_queue.put((item, center))
             return
         if typ == "notify":
             self._toast(str(act.get("text", "") or "规则通知"), "info")
@@ -566,6 +587,11 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
                 self.hotkeys = None
             try:
                 self.rules_engine.stop()
+            except Exception:
+                pass
+            try:
+                self.input_stop.set()
+                self.input_queue.put(None)
             except Exception:
                 pass
             if keepalive.enabled:

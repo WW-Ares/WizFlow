@@ -909,6 +909,12 @@ class MonitorPageMixin:
         self._show_page("record")
         self._toast("多图标监控节点已插入：%d 条规则" % len(g["rules"]), "ok")
 
+    def _pause_scene_preview(self):
+        if self.preview_stop is not None and not self.preview_stop.is_set():
+            self.preview_stop.set()
+        self.preview_stop = None
+        self.preview_thread = None
+
     def _toggle_scene_preview(self):
         if self.preview_stop is not None and not self.preview_stop.is_set():
             self.preview_stop.set()

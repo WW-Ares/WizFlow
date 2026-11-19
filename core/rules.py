@@ -106,6 +106,16 @@ class BackgroundRuleEngine(threading.Thread):
                 self._close_source()
                 self._stop.wait(0.4)
                 continue
+            now = time.time()
+            due = []
+            for rule in rules:
+                st = self._state(str(rule.get("id")))
+                if now >= st.next_due:
+                    due.append(rule)
+            if not due:
+                nxt = min(self._state(str(r.get("id"))).next_due for r in rules)
+                self._stop.wait(max(0.02, min(0.2, nxt - now)))
+                continue
             try:
                 source = self._ensure_source(group)
                 t_grab = time.perf_counter()
