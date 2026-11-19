@@ -116,7 +116,6 @@ DEFAULTS = {
         "run_script": "",
         "script_anchor": [],
     },
-    "ui_scale": 1.30,
     "window": {"w": 1180, "h": 790},
 }
 
