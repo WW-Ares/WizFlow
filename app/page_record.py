@@ -112,12 +112,11 @@ class RecordPageMixin:
                   text_color="white").pack(side="left")
 
         self.play_pill = Pill(play.body, "空闲", theme.MUTED)
-        self.play_pill.pack(anchor="w", pady=(0, 6))
         self.progress = ctk.CTkProgressBar(play.body, height=8, progress_color=theme.ACCENT,
                                            fg_color=theme.BG2)
         self.progress.pack(fill="x")
         self.progress.set(0)
-        self.play_log = ctk.CTkTextbox(play.body, height=40, fg_color=theme.BG2,
+        self.play_log = ctk.CTkTextbox(play.body, height=64, fg_color=theme.BG2,
                                        text_color=theme.MUTED, font=(theme.MONO, theme.fs(9)),
                                        corner_radius=8)
         self.play_log.pack(fill="x", pady=(8, 0))
@@ -144,8 +143,7 @@ class RecordPageMixin:
         self._btn(self.edit_bar, "保存", self._save_edit, width=64, color=theme.OK,
                   text_color="#04121f").pack(side="left", padx=5)
         self._btn(self.edit_bar, "退出编辑", self._exit_edit, width=76).pack(side="left")
-        self.event_hint = label(ev_card.body, "", 9)
-        self.event_hint.pack(anchor="w", pady=(0, 4))
+
 
         tables = ctk.CTkFrame(ev_card.body, fg_color=theme.BG2, corner_radius=8)
         tables.pack(fill="both", expand=True, pady=(2, 0))
@@ -360,16 +358,7 @@ class RecordPageMixin:
         return "break"
 
     def _update_hint(self):
-        n = len(self._selected())
-        try:
-            if not getattr(self, "_editing", False):
-                self.event_hint.configure(text="")
-            elif n:
-                self.event_hint.configure(text="编辑中 · 已选 %d 个 · 修改需点保存" % n)
-            else:
-                self.event_hint.configure(text="编辑中 · 修改需点「保存」，可点「恢复更改」撤销")
-        except Exception:
-            pass
+        return
 
     def _update_counts(self):
         n = len(self._current_events())
@@ -679,34 +668,21 @@ class RecordPageMixin:
             return
         self.recording = True
         self._rec_started = time.time()
-        self.rec_pill.set("录制中", theme.DANGER)
         self.btn_record.configure(text="■  停止录制    F8", fg_color="#7f1d1d")
         self._set_header("录制中", theme.DANGER)
         self._toast("录制已开始，按 F8 或点击按钮结束", "ok")
-        self.after(500, self._rec_tick)
-
-    def _rec_tick(self):
-        if not self.recording:
-            return
-        secs = int(time.time() - self._rec_started)
-        self.rec_stats.configure(text="已录制 %02d:%02d · %d 个事件 · 轨迹%s"
-                                 % (secs // 60, secs % 60, len(self.events),
-                                    "开" if self.traj_var.get() else "关"))
-        self.after(500, self._rec_tick)
 
     def _stop_record(self):
         if not self.recording:
             return
         self.recorder.stop()
         self.recording = False
-        self.rec_pill.set("待机", theme.MUTED)
         self.btn_record.configure(text="●  开始录制    F8", fg_color=theme.DANGER)
-        self._set_header("待机", theme.OK)
+        self._set_header("空闲", theme.OK)
         if self.events:
             path = new_script_path()
             self.script_path = path
             self._save_script(silent=True)
-            self.rec_stats.configure(text="已保存 %s · %d 个事件" % (path.name, len(self.events)))
             self._toast("录制完成，已保存 %s" % path.name, "ok")
         else:
             self._toast("录制结束，没有捕获到事件", "warn")
@@ -856,12 +832,18 @@ class RecordPageMixin:
                 pass
         if text:
             self.play_pill.set(text[:16], theme.OK if "运行" in text else theme.MUTED)
+            if "第" in text:
+                self._set_header(text.replace("运行中", "回放中")[:14], theme.ACCENT)
+            elif "完成" in text:
+                self._set_header("已完成", theme.OK)
+            elif "停止" in text:
+                self._set_header("已停止", theme.WARN)
 
     def _apply_player_done(self, reason: str):
         self._rule_paused = False
         self.player.current_script = self.script_path
         self.btn_play.configure(text="▶  启动    F6")
-        self._set_header("待机", theme.OK)
+        self._set_header("空闲", theme.OK)
         if reason == "finished":
             self.play_pill.set("已完成", theme.OK)
             self.progress.set(1.0)

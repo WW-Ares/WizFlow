@@ -147,7 +147,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
                                         text_color=theme.MUTED)
         self.hotkey_hint.pack(side="left", padx=(0, 14))
         self._refresh_header_hotkeys()
-        self.header_pill = Pill(right, "待机", theme.OK)
+        self.header_pill = Pill(right, "空闲", theme.OK, width=120)
         self.header_pill.pack(side="left")
 
     def _refresh_header_hotkeys(self):
@@ -680,13 +680,38 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         except Exception:
             pass
 
+    def _move_to_monitor2(self):
+        """把测试窗口放到第二台显示器，避免占用主显示器。"""
+        try:
+            import ctypes
+            import mss
+            with mss.mss() as sct:
+                mons = sct.monitors
+            mon = mons[2] if len(mons) > 2 else mons[1]
+            w = min(1200, int(mon["width"]))
+            h = min(860, int(mon["height"]))
+            x = int(mon["left"])
+            y = int(mon["top"]) + (int(mon["height"]) - h) // 2
+            self.geometry("%dx%d+0+0" % (w, h))
+            self.update_idletasks()
+            u32 = ctypes.windll.user32
+            hwnd = int(self.winfo_id())
+            parent = u32.GetParent(hwnd)
+            target = parent or hwnd
+            u32.SetWindowPos(target, 0, x, y, w, h, 0x0004)
+            self.update()
+        except Exception:
+            pass
+
     def _ui_smoke(self):
         try:
             self.deiconify()
             self.lift()
             self.attributes("-topmost", True)
-            self.geometry("1280x860+40+40")
+            self.geometry("1200x860+40+40")
             self.focus_force()
+            self.update()
+            self._move_to_monitor2()
             self.update()
         except Exception:
             pass
@@ -707,22 +732,25 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
 
     def _ui_smoke_capture(self, page: str):
         try:
-            from PIL import ImageGrab
+            import mss
+            from PIL import Image
             self.update_idletasks()
             x, y = self.winfo_rootx(), self.winfo_rooty()
             w, h = self.winfo_width(), self.winfo_height()
-            img = ImageGrab.grab(bbox=(x, y, x + w, y + h))
-            img.save(str(LOGS_DIR / ("ui_smoke_%s.png" % page)))
+            with mss.mss() as sct:
+                shot = sct.grab({"left": int(x), "top": int(y),
+                                 "width": int(w), "height": int(h)})
+                img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+                img.save(str(LOGS_DIR / ("ui_smoke_%s.png" % page)))
             log("UI smoke screenshot saved %s %dx%d at %d,%d" % (page, w, h, x, y))
             if self.hud is not None and self.hud.winfo_viewable():
                 hx, hy = self.hud.winfo_rootx(), self.hud.winfo_rooty()
                 hw, hh = self.hud.winfo_width(), self.hud.winfo_height()
-                himg = ImageGrab.grab(bbox=(hx - 8, hy - 8, hx + hw + 8, hy + hh + 8))
-                himg.save(str(LOGS_DIR / "hud_smoke.png"))
+                with mss.mss() as sct:
+                    shot = sct.grab({"left": int(hx - 8), "top": int(hy - 8),
+                                     "width": int(hw + 16), "height": int(hh + 16)})
+                    himg = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+                    himg.save(str(LOGS_DIR / "hud_smoke.png"))
         except Exception as exc:
             log("UI smoke 截图失败(%s): %s" % (page, exc), "WARN")
         self.after(300, self._ui_smoke_step)
-
-
-
-
