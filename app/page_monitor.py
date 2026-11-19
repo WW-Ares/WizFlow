@@ -287,6 +287,9 @@ class MonitorPageMixin:
         self._btn(srow, "复制", self._copy_scheme, width=48, height=28).pack(side="left", padx=3)
         self._btn(srow, "改名", self._rename_scheme, width=48, height=28).pack(side="left")
         self._btn(srow, "删除", self._delete_scheme, width=48, height=28).pack(side="left", padx=3)
+        self._btn(srow, "导入", self._import_scheme, width=48, height=28,
+                  color=theme.PURPLE, text_color="white").pack(side="left")
+        self._btn(srow, "导出", self._export_scheme, width=48, height=28).pack(side="left", padx=3)
         self._refresh_scheme_menu()
 
         crow = ctk.CTkFrame(region.body, fg_color="transparent")
