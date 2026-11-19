@@ -312,8 +312,8 @@ class MonitorPageMixin:
     def _build_monitor_page(self):
         outer, page = self._new_page()
         self.pages["monitor"] = outer
-        page.grid_columnconfigure(0, weight=3, uniform="mon")
-        page.grid_columnconfigure(1, weight=2, uniform="mon")
+        page.grid_columnconfigure(0, weight=4, uniform="mon")
+        page.grid_columnconfigure(1, weight=3, uniform="mon")
         page.grid_rowconfigure(0, weight=0)
         page.grid_rowconfigure(1, weight=1)
         self._init_scheme_library()
@@ -514,8 +514,8 @@ class MonitorPageMixin:
 
             srow = ctk.CTkFrame(row, fg_color="transparent")
             srow.pack(fill="x", padx=(8, 24), pady=(2, 6))
-            st = label(srow, "状态：等待检测", 9, theme.MUTED, anchor="w")
-            st.pack(side="left")
+            st = label(srow, "等待检测", 9, theme.MUTED, anchor="w")
+            st.pack(side="left", fill="x", expand=True)
             self._rule_status_labels[rid] = st
             ctk.CTkButton(srow, text="删除", width=40, height=22, fg_color=theme.DANGER,
                           text_color="white", font=(theme.FONT, theme.fs(9)),
@@ -525,12 +525,17 @@ class MonitorPageMixin:
                           command=lambda r=rid: self._insert_rule(r)).pack(side="right", padx=2)
             resbox = ctk.CTkFrame(srow, fg_color="transparent")
             resbox.pack(side="right", padx=(0, 4))
-            label(resbox, "常驻", 9, theme.MUTED).pack(side="left", padx=(0, 2))
+            rule_on = bool(rule.get("enabled", True))
+            label(resbox, "常驻", 9, theme.MUTED if rule_on else theme.LINE).pack(
+                side="left", padx=(0, 2))
             res_var = tk.BooleanVar(value=bool(rule.get("resident", False)))
-            ctk.CTkSwitch(resbox, text="", variable=res_var, width=40,
-                          progress_color=theme.ACCENT,
-                          command=lambda r=rid, v=res_var: self._set_rule_flag(r, "resident", bool(v.get()))
-                          ).pack(side="left")
+            res_sw = ctk.CTkSwitch(resbox, text="", variable=res_var, width=40,
+                                   progress_color=theme.ACCENT,
+                                   command=lambda r=rid, v=res_var: self._set_rule_flag(
+                                       r, "resident", bool(v.get())))
+            if not rule_on:
+                res_sw.configure(state="disabled")
+            res_sw.pack(side="left")
         self._refresh_multi_label()
 
     def _refresh_multi_label(self):
@@ -610,11 +615,27 @@ class MonitorPageMixin:
 
     def _set_rule_flag(self, rid: str, key: str, value: bool):
         g = normalize_monitor_group(self.multi_group)
+        blocked = False
         for r in g.get("rules", []):
-            if str(r.get("id")) == rid:
+            if str(r.get("id")) != rid:
+                continue
+            if key == "enabled":
+                r["enabled"] = bool(value)
+                if not r["enabled"]:
+                    r["resident"] = False
+            elif key == "resident":
+                if not r.get("enabled", True):
+                    r["resident"] = False
+                    blocked = bool(value)
+                else:
+                    r["resident"] = bool(value)
+            else:
                 r[key] = bool(value)
-                break
+            break
         self._save_multi_group(g, silent=True)
+        if blocked:
+            self._toast("规则已停用，启用后才能常驻", "warn")
+        self.after(10, self._refresh_rules_list)
 
     def _insert_rule(self, rid: str):
         rule = next((r for r in self._rules() if str(r.get("id")) == rid), None)
@@ -624,7 +645,8 @@ class MonitorPageMixin:
         g["name"] = rule.get("name", "监控规则")
         g["rules"] = [dict(rule)]
         g["links"] = []
-        self._insert_multi_group(g)
+        # 插入单条规则只写脚本节点，不能用单规则组覆盖当前方案
+        self._insert_multi_group(g, persist=False)
 
     def _export_rules(self):
         path = filedialog.asksaveasfilename(
@@ -762,19 +784,26 @@ class MonitorPageMixin:
                                % (len(resident), present,
                                   float(getattr(engine, "grab_ms", 0.0)))), theme.ACCENT
             self.rules_status.configure(text=text, text_color=color)
+            by_id = {str(r.get("id")): r for r in rules}
             for rid, lab in list(getattr(self, "_rule_status_labels", {}).items()):
+                rule = by_id.get(rid)
+                if rule is None or not rule.get("enabled", True):
+                    lab.configure(text="已停用", text_color=theme.MUTED)
+                    continue
+                if not rule.get("resident"):
+                    lab.configure(text="未常驻", text_color=theme.MUTED)
+                    continue
                 st = statuses.get(rid)
                 if not st:
-                    lab.configure(text="状态：未常驻", text_color=theme.MUTED)
+                    lab.configure(text="未常驻", text_color=theme.MUTED)
                 elif st.get("error"):
-                    lab.configure(text="状态：%s" % str(st["error"])[:48], text_color=theme.WARN)
+                    lab.configure(text="异常：%s" % str(st["error"])[:28], text_color=theme.WARN)
                 elif st.get("present"):
-                    lab.configure(text="状态：已出现 · %.2f · %.1fms" % (
+                    lab.configure(text="命中 %.2f · %.1fms" % (
                         float(st.get("score", 0)), float(st.get("cost_ms", 0))),
                         text_color=theme.OK)
                 else:
-                    lab.configure(text="状态：监控中 · %.2f · %.1fms" % (
-                        float(st.get("score", 0)), float(st.get("cost_ms", 0))),
+                    lab.configure(text="监控中 %.1fms" % float(st.get("cost_ms", 0)),
                         text_color=theme.MUTED)
         except Exception:
             pass
@@ -943,7 +972,7 @@ class MonitorPageMixin:
                     on_save=self._save_multi_group,
                     on_insert=self._insert_multi_group)
 
-    def _insert_multi_group(self, group=None):
+    def _insert_multi_group(self, group=None, persist=True):
         g = normalize_monitor_group(group or self.multi_group)
         g["region"] = [int(v) for v in self.monitor_profile.region]
         g["capture_mode"] = self.monitor_profile.capture_mode
@@ -959,7 +988,8 @@ class MonitorPageMixin:
             ev["scheme_id"] = s.get("id", "")
             ev["scheme_name"] = s.get("name", "")
         self._add_event(ev)
-        self._save_multi_group(g)
+        if persist:
+            self._save_multi_group(g)
         if not self._save_script(silent=True):
             return
         self._show_page("record")

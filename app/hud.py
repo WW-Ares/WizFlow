@@ -1,4 +1,4 @@
-"""迷你悬浮窗：259×76，右上角，状态胶囊 + F6/F7/F8 一键操作。
+"""迷你悬浮窗：310×88，右上角，状态胶囊 + F6/F7/F8 一键操作。
 
 背景层与文字层分成两个 Toplevel：
 - 背景层允许调透明度，只画卡片和色块；
@@ -15,8 +15,8 @@ from core.winapi import primary_size, virtual_screen_rect
 from . import theme
 
 TRANSPARENT = "#010203"
-CARD_W = 259
-CARD_H = 76
+CARD_W = 310
+CARD_H = 88
 BG = "#14181f"
 BORDER = "#2b3341"
 CHIP_BG = "#1f2530"
@@ -83,10 +83,10 @@ class HudWindow(tk.Toplevel):
                                 highlightthickness=0, bd=0)
         self.canvas.pack()
 
-        self.f_title = tkfont.Font(family="Microsoft YaHei UI", size=-14, weight="bold")
-        self.f_key = tkfont.Font(family="Consolas", size=-11, weight="bold")
-        self.f_lbl = tkfont.Font(family="Microsoft YaHei UI", size=-12)
-        self.f_pill = tkfont.Font(family="Microsoft YaHei UI", size=-12, weight="bold")
+        self.f_title = tkfont.Font(family="Microsoft YaHei UI", size=-17, weight="bold")
+        self.f_key = tkfont.Font(family="Consolas", size=-13, weight="bold")
+        self.f_lbl = tkfont.Font(family="Microsoft YaHei UI", size=-14)
+        self.f_pill = tkfont.Font(family="Microsoft YaHei UI", size=-14, weight="bold")
 
         self._build_menu()
         self._draw()
@@ -140,7 +140,7 @@ class HudWindow(tk.Toplevel):
                           smooth=True, splinesteps=16, fill=theme.ACCENT, outline="")
         fc.create_line(17, 27, 21, 21, 25, 24, 29, 18, fill="#ffffff", width=2,
                        capstyle="round", joinstyle="round")
-        _shadow_text(fc, 39, 23, "WizFlow", self.f_title, "#e8edf6", "w")
+        _shadow_text(fc, 39, 26, "WizFlow", self.f_title, "#e8edf6", "w")
 
         text, fill, line, fg = STATE_STYLE.get(self._state, STATE_STYLE["idle"])
         if self._state == "running" and "第" in self._status_text:
@@ -154,10 +154,10 @@ class HudWindow(tk.Toplevel):
         pw = 12 + 6 + 5 + self.f_pill.measure(text) + 10
         x2 = CARD_W - 12
         x1 = x2 - pw
-        y1, y2 = 11, 32
+        y1, y2 = 12, 40
         _round_rect(bc, x1, y1, x2, y2, (y2 - y1) / 2, fill=fill, outline="")
         _round_rect(fc, x1, y1, x2, y2, (y2 - y1) / 2, fill="", outline=line, width=1)
-        fc.create_oval(x1 + 10, 18, x1 + 16, 24, fill=line, outline="")
+        fc.create_oval(x1 + 9, 19, x1 + 17, 27, fill=line, outline="")
         _shadow_text(fc, x1 + 21, (y1 + y2) / 2, text, self.f_pill, fg, "w")
 
         labels = self._chip_labels()
@@ -166,7 +166,7 @@ class HudWindow(tk.Toplevel):
         for i, ((key, text), (x, w)) in enumerate(zip(labels, geoms)):
             tag = "chip%d" % i
             self._chip_tags.append(tag)
-            y1, y2 = 40, 66
+            y1, y2 = 46, 80
             _round_rect(bc, x, y1, x + w, y2, 7, fill=CHIP_BG, outline="", tags=(tag,))
             _round_rect(fc, x, y1, x + w, y2, 7, fill="", outline=CHIP_LINE, width=1, tags=(tag,))
             kw = self.f_key.measure(key)
@@ -299,7 +299,7 @@ class HudWindow(tk.Toplevel):
     def _build_menu(self):
         self.menu = tk.Menu(self, tearoff=0, bg="#141a24", fg="#e6edf7",
                             activebackground="#1d4ed8", activeforeground="#ffffff",
-                            bd=0, font=("Microsoft YaHei UI", 9))
+                            bd=0, font=(theme.FONT, theme.fs(9)))
         self.menu.add_command(label="打开主界面", command=self._show_main)
         self.through_var = tk.BooleanVar(value=self.click_through)
         self.menu.add_checkbutton(label="鼠标穿透（只显示不挡点击）", command=self._toggle_through,

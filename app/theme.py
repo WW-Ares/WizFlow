@@ -17,7 +17,7 @@ import os
 
 FONT = "Microsoft YaHei UI"
 MONO = "Consolas"
-FONT_SCALE = float(os.environ.get("WIZFLOW_UI_SCALE", "1.15"))
+FONT_SCALE = float(os.environ.get("WIZFLOW_UI_SCALE", "1.30"))
 
 
 def fs(size):

@@ -11,7 +11,7 @@ from pathlib import Path
 
 APP_NAME = "WizFlow"
 APP_ID = "WizFlow.Desktop"
-APP_VERSION = "1.9.2"
+APP_VERSION = "1.9.3"
 
 
 def app_dir() -> Path:
@@ -116,7 +116,7 @@ DEFAULTS = {
         "run_script": "",
         "script_anchor": [],
     },
-    "ui_scale": 1.15,
+    "ui_scale": 1.30,
     "window": {"w": 1180, "h": 790},
 }
 

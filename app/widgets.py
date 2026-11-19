@@ -161,7 +161,7 @@ class ImagePanel(ctk.CTkLabel):
 
 
 def label(master, text: str, size=11, color=theme.MUTED, **kwargs):
-    return ctk.CTkLabel(master, text=text, font=(theme.FONT, size),
+    return ctk.CTkLabel(master, text=text, font=(theme.FONT, theme.fs(size)),
                         text_color=color, **kwargs)
 
 
@@ -311,6 +311,8 @@ class AutoScrollFrame(ctk.CTkFrame):
                                      command=self.canvas.yview)
         self.vbar.grid(row=0, column=1, sticky="ns")
         self.vbar.grid_remove()
+        self._bar_visible = False
+        self._hide_job = None
         self.canvas.configure(yscrollcommand=self._yset)
         self.inner = ctk.CTkFrame(self.canvas, fg_color="transparent")
         self.win = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
@@ -346,13 +348,36 @@ class AutoScrollFrame(ctk.CTkFrame):
         self.after_idle(self._update_bar)
 
     def _update_bar(self):
+        """按内容高度与可视高度比较决定滚动条显隐；到底后保持位置，不回弹顶部。"""
         try:
-            first, last = self.canvas.yview()
-            if last >= 0.999:
+            ch = self.canvas.winfo_height()
+            bbox = self.canvas.bbox("all")
+            content_h = self.inner.winfo_reqheight()
+            if bbox:
+                content_h = max(content_h, bbox[3] - bbox[1])
+            need = content_h > ch + 1
+            if need:
+                if self._hide_job is not None:
+                    try:
+                        self.after_cancel(self._hide_job)
+                    except Exception:
+                        pass
+                    self._hide_job = None
+                if not self._bar_visible:
+                    self._bar_visible = True
+                    self.vbar.grid()
+            elif self._bar_visible and self._hide_job is None:
+                # 内容重绘期间会短暂变矮，延迟确认，避免滚动条闪烁和视图跳回顶部
+                self._hide_job = self.after(180, self._hide_bar_if_fit)
+        except Exception:
+            pass
+
+    def _hide_bar_if_fit(self):
+        self._hide_job = None
+        try:
+            if self.inner.winfo_reqheight() <= self.canvas.winfo_height() + 1:
+                self._bar_visible = False
                 self.vbar.grid_remove()
-                self.canvas.yview_moveto(0)
-            else:
-                self.vbar.grid()
         except Exception:
             pass
 

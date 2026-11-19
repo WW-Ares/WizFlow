@@ -28,7 +28,7 @@ class WindowPicker(ctk.CTkToplevel):
 
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.pack(fill="x", padx=16, pady=(14, 6))
-        label(head, "选择要监控的窗口（可抓被遮挡的窗口）", 14, theme.TEXT).pack(side="left")
+        label(head, "选择要监控的窗口（可抓被遮挡的窗口）", 11, theme.TEXT).pack(side="left")
         self._btn(head, "刷新", self.refresh, 70).pack(side="right")
 
         body = ctk.CTkFrame(self, fg_color=theme.BG2, corner_radius=10)
@@ -40,10 +40,10 @@ class WindowPicker(ctk.CTkToplevel):
         except Exception:
             pass
         style.configure("Win.Treeview", background=theme.BG2, fieldbackground=theme.BG2,
-                        foreground=theme.TEXT, rowheight=28, borderwidth=0,
-                        font=(theme.FONT, theme.fs(10)))
+                        foreground=theme.TEXT, rowheight=26, borderwidth=0,
+                        font=(theme.FONT, 11))
         style.configure("Win.Treeview.Heading", background=theme.CARD2, foreground=theme.MUTED,
-                        relief="flat", font=(theme.FONT, theme.fs(10), "bold"), padding=(6, 4))
+                        relief="flat", font=(theme.FONT, 10, "bold"), padding=(6, 3))
         style.map("Win.Treeview", background=[("selected", "#1d4ed8")],
                   foreground=[("selected", "#ffffff")])
         cols = ("title", "cls", "proc", "size")
@@ -65,17 +65,19 @@ class WindowPicker(ctk.CTkToplevel):
         bottom.pack(fill="x", padx=16, pady=(4, 14))
         self.hint = label(bottom, "", 9)
         self.hint.pack(side="left")
-        ctk.CTkButton(bottom, text="取消", width=90, height=34, fg_color=theme.CARD2,
-                      hover_color=theme.LINE, command=self.destroy).pack(side="right")
-        ctk.CTkButton(bottom, text="选择", width=110, height=34, fg_color=theme.ACCENT,
-                      text_color="#04121f", command=self._pick).pack(side="right", padx=8)
+        ctk.CTkButton(bottom, text="取消", width=88, height=30, fg_color=theme.CARD2,
+                      hover_color=theme.LINE, font=(theme.FONT, 12),
+                      command=self.destroy).pack(side="right")
+        ctk.CTkButton(bottom, text="选择", width=104, height=30, fg_color=theme.ACCENT,
+                      text_color="#04121f", font=(theme.FONT, 12),
+                      command=self._pick).pack(side="right", padx=8)
         self.refresh()
         self.after(120, self._focus)
 
     def _btn(self, master, text, cmd, width=70):
-        return ctk.CTkButton(master, text=text, command=cmd, width=width, height=30,
+        return ctk.CTkButton(master, text=text, command=cmd, width=width, height=28,
                              fg_color=theme.CARD2, hover_color=theme.LINE,
-                             font=(theme.FONT, theme.fs(10)))
+                             font=(theme.FONT, 11))
 
     def _focus(self):
         try:

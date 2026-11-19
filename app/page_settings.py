@@ -21,7 +21,7 @@ class SettingsPageMixin:
         self.pages["settings"] = outer
         page.grid_columnconfigure(0, weight=1)
 
-        top = Card(page, "全局热键 / 界面", "常用设置合并")
+        top = Card(page, "全局热键 / 路径与工具", "热键与应用目录")
         top.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         inner = ctk.CTkFrame(top.body, fg_color="transparent")
         inner.pack(fill="x")
@@ -44,24 +44,23 @@ class SettingsPageMixin:
 
         right = ctk.CTkFrame(inner, fg_color="transparent")
         right.grid(row=0, column=1, sticky="nsew", padx=(18, 0))
-        row = ctk.CTkFrame(right, fg_color="transparent")
-        row.pack(fill="x", pady=2)
-        label(row, "界面缩放", 11, theme.TEXT).pack(side="left")
-        cur = float(self.cfg.get("ui_scale", 1.15) or 1.15)
-        cur_txt = {1.0: "100%", 1.15: "115%", 1.30: "130%", 1.50: "150%"}.get(cur, "115%")
-        self.scale_var = tk.StringVar(value=cur_txt)
-        ctk.CTkOptionMenu(row, variable=self.scale_var,
-                          values=["100%", "115%", "130%", "150%"],
-                          width=100, height=28, fg_color=theme.CARD2,
-                          button_color=theme.LINE,
-                          command=self._on_scale_change).pack(side="left", padx=10)
-        ctk.CTkButton(row, text="保存并重启", width=104, height=28,
-                      fg_color=theme.ACCENT, text_color="#04121f",
-                      command=self._restart_app).pack(side="left", padx=6)
-        label(right, "字体、按钮和输入框同步缩放；重启后生效。", 9).pack(anchor="w", pady=(12, 4))
-        label(right, "所有页面统一宽度，不再出现右侧空白。", 9).pack(anchor="w")
-        label(right, "页面横竖滚动条按需显示。", 9).pack(anchor="w")
-        label(right, "主窗口固定 1200 宽，保证区域监控完整显示。", 9).pack(anchor="w")
+        pathbox = ctk.CTkFrame(right, fg_color=theme.BG2, corner_radius=8)
+        pathbox.pack(fill="both", expand=True)
+        label(pathbox, "程序目录：%s" % ROOT, 9, theme.MUTED, anchor="w",
+              justify="left", wraplength=430).pack(anchor="w", padx=10, pady=(8, 0))
+        label(pathbox, "脚本：scripts/    图标：icons/    日志：logs/    配置：config.json",
+              9, theme.MUTED, anchor="w").pack(anchor="w", padx=10, pady=(4, 0))
+        btns = ctk.CTkFrame(pathbox, fg_color="transparent")
+        btns.pack(side="bottom", anchor="w", padx=8, pady=(4, 8))
+        for i, (txt, cmd) in enumerate([
+            ("打开程序目录", lambda: os.startfile(str(ROOT))),
+            ("打开脚本目录", self._open_scripts_dir),
+            ("打开日志目录", lambda: os.startfile(str(LOGS_DIR))),
+            ("打开图标目录", lambda: os.startfile(str(ICONS_DIR))),
+            ("打开配置", lambda: os.startfile(str(CONFIG_FILE))),
+        ]):
+            self._btn(btns, txt, cmd, width=104).grid(row=i // 3, column=i % 3,
+                                                      padx=(0, 6), pady=3, sticky="w")
 
         keep = ctk.CTkFrame(page, fg_color="transparent")
         keep.grid(row=1, column=0, sticky="ew", pady=8)
@@ -105,54 +104,31 @@ class SettingsPageMixin:
             anchor="w", pady=(8, 0))
         label(vd.body, "组策略强制锁屏时无法绕过。", 9).pack(anchor="w")
 
-        about = Card(page, "路径与工具")
-        about.grid(row=2, column=0, sticky="ew", pady=8)
+        about = Card(page, "关于 WizFlow", "项目介绍")
+        about.grid(row=2, column=0, sticky="ew", pady=(4, 0))
         body = ctk.CTkFrame(about.body, fg_color="transparent")
         body.pack(fill="x")
         texts = ctk.CTkFrame(body, fg_color=theme.BG2, corner_radius=8)
-        texts.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=6)
-        label(texts, "程序目录：%s" % ROOT, 9, theme.MUTED, anchor="w",
-              justify="left", wraplength=540).pack(anchor="w", padx=8, pady=(6, 0))
-        label(texts, "脚本：scripts/    图标：icons/", 9, theme.MUTED, anchor="w").pack(
-            anchor="w", padx=8, pady=(2, 0))
-        label(texts, "日志：logs/        配置：config.json", 9, theme.MUTED, anchor="w").pack(
-            anchor="w", padx=8, pady=(2, 6))
+        texts.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=4)
+        label(texts, "WizFlow 是面向 Windows 的工作流自动化工具：键鼠录制回放、图片识别、区域监控、脚本编排与虚拟屏保活。",
+              9, theme.MUTED, anchor="w", justify="left", wraplength=740).pack(
+            anchor="w", padx=10, pady=(6, 0))
+        label(texts, "适合办公重复录入、表单登记、批量修改与界面巡检，也可用于游戏自动化；建议以管理员身份运行。",
+              9, theme.MUTED, anchor="w", justify="left", wraplength=740).pack(
+            anchor="w", padx=10, pady=(2, 0))
+        label(texts, "项目地址：https://github.com/WW-Ares/WizFlow    开源协议：GPL-2.0",
+              9, theme.MUTED, anchor="w").pack(anchor="w", padx=10, pady=(2, 6))
         btns = ctk.CTkFrame(body, fg_color="transparent")
         btns.pack(side="right", padx=(10, 0))
-        self._btn(btns, "打开程序目录", lambda: os.startfile(str(ROOT)), width=98).grid(
-            row=0, column=0, padx=2, pady=2)
-        self._btn(btns, "打开脚本目录", self._open_scripts_dir, width=98).grid(
-            row=0, column=1, padx=2, pady=2)
-        self._btn(btns, "打开日志目录", lambda: os.startfile(str(LOGS_DIR)), width=98).grid(
-            row=1, column=0, padx=2, pady=2)
-        self._btn(btns, "打开配置", lambda: os.startfile(str(CONFIG_FILE)), width=98).grid(
-            row=1, column=1, padx=2, pady=2)
+        self._btn(btns, "打开项目主页", self._open_project, width=118,
+                  color=theme.ACCENT, text_color="#04121f").pack(pady=(0, 6))
 
-    def _on_scale_change(self, value):
-        mapping = {"100%": 1.0, "115%": 1.15, "130%": 1.30, "150%": 1.50}
-        scale = mapping.get(value, 1.15)
-        self.cfg.set("ui_scale", scale)
-        self.cfg.save()
-        self._toast("界面缩放已保存为 %s，点「保存并重启」生效" % value, "ok")
-
-    def _restart_app(self):
+    def _open_project(self):
+        import webbrowser
         try:
-            self.cfg.save()
-            if getattr(self, "_editing", False):
-                if not self._save_edit(silent=True):
-                    return
-            self._shutdown_backends()
-            if getattr(sys, "frozen", False):
-                args = [sys.executable]
-            else:
-                args = [sys.executable] + list(sys.argv)
-            flags = 0
-            if os.name == "nt":
-                flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-            subprocess.Popen(args, cwd=str(ROOT), close_fds=True, creationflags=flags)
-            self.destroy()
+            webbrowser.open("https://github.com/WW-Ares/WizFlow")
         except Exception as exc:
-            self._toast("重启失败：%s" % exc, "error")
+            self._toast("打开项目主页失败：%s" % exc, "warn")
 
     def _apply_hotkeys(self):
         vals = {k: v.get().strip() for k, v in self.hk_vars.items()}

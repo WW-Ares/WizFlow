@@ -86,7 +86,10 @@ def normalize_rule(d: dict, idx: int = 0) -> dict:
     out["max_triggers"] = max(0, _i(d.get("max_triggers", 0), 0))
     out["group"] = str(d.get("group", "") or "")
     out["recheck"] = bool(d.get("recheck", True))
+    out["enabled"] = bool(d.get("enabled", True))
     out["resident"] = bool(d.get("resident", False))
+    if not out["enabled"]:
+        out["resident"] = False
     actions = d.get("actions") or []
     out["actions"] = [a for a in actions if isinstance(a, dict)]
     miss = d.get("miss_actions") or []

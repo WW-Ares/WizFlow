@@ -82,8 +82,9 @@ class EventEditorDialog(ctk.CTkToplevel):
         self._tpl_thumb_img = None
 
         self.title("编辑节点" if event else "新增节点")
-        self.geometry("640x600")
-        self.minsize(580, 520)
+        self.geometry("760x720")
+        self.minsize(760, 680)
+        self.resizable(False, True)
         self.configure(fg_color=theme.BG)
         self.transient(master)
         apply_window_icon(self)
@@ -228,9 +229,6 @@ class EventEditorDialog(ctk.CTkToplevel):
         ctk.CTkButton(row, text="屏幕取点", width=80, height=28, fg_color=theme.CARD2,
                       hover_color=theme.LINE, font=(theme.FONT, theme.fs(10)),
                       command=lambda: self._pick_point(self.vars["x"], self.vars["y"])).pack(side="left")
-        ctk.CTkButton(row, text="当前鼠标", width=80, height=28, fg_color=theme.CARD2,
-                      hover_color=theme.LINE, font=(theme.FONT, theme.fs(10)),
-                      command=self._use_cursor).pack(side="left", padx=6)
 
     def _xy(self):
         action = self.event.get("action")

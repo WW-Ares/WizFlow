@@ -303,8 +303,8 @@ def install_driver() -> str:
         [nef, "--install-driver", "--inf-path", inf],
     ]
     code, text = _run_driver_commands(cmds, "install")
-    if code == 0:
-        log("Parsec VDD 驱动安装完成")
+    if code == 0 or driver_installed() or active_count() > 0:
+        log("Parsec VDD 驱动安装完成 code=%s" % code)
         return ""
     log("Parsec VDD 驱动安装失败 code=%s %s" % (code, text), "WARN")
     return text or ("安装失败（code=%s）" % code)

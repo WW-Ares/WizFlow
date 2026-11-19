@@ -113,14 +113,10 @@ class RecordPageMixin:
                   text_color="white").pack(side="left")
 
         self.play_pill = Pill(play.body, "空闲", theme.MUTED)
-        self.progress = ctk.CTkProgressBar(play.body, height=8, progress_color=theme.ACCENT,
-                                           fg_color=theme.BG2)
-        self.progress.pack(fill="x")
-        self.progress.set(0)
-        self.play_log = ctk.CTkTextbox(play.body, height=64, fg_color=theme.BG2,
-                                       text_color=theme.MUTED, font=(theme.MONO, theme.fs(9)),
+        self.play_log = ctk.CTkTextbox(play.body, height=120, fg_color=theme.BG2,
+                                       text_color=theme.MUTED, font=(theme.MONO, theme.fs(10)),
                                        corner_radius=8)
-        self.play_log.pack(fill="x", pady=(8, 0))
+        self.play_log.pack(fill="both", expand=True, pady=(8, 0))
         self.play_log.insert("end", "等待启动…")
         self.play_log.configure(state="disabled")
 
@@ -155,10 +151,10 @@ class RecordPageMixin:
             pass
         style.configure("WF.Treeview", background=theme.BG2, fieldbackground=theme.BG2,
                         foreground=theme.TEXT, rowheight=max(24, theme.fs(13)),
-                        borderwidth=0, relief="flat", font=(theme.FONT, theme.fs(10)),
+                        borderwidth=0, relief="flat", font=(theme.FONT, 11),
                         bordercolor=theme.BG2, lightcolor=theme.BG2, darkcolor=theme.BG2)
         style.configure("WF.Treeview.Heading", background=theme.CARD2, foreground=theme.MUTED,
-                        relief="flat", font=(theme.FONT, theme.fs(9), "bold"), padding=(6, 3),
+                        relief="flat", font=(theme.FONT, 10, "bold"), padding=(6, 3),
                         bordercolor=theme.CARD2, lightcolor=theme.CARD2, darkcolor=theme.CARD2)
         style.map("WF.Treeview", background=[("selected", "#1d4ed8")],
                   foreground=[("selected", "#ffffff")])
@@ -844,11 +840,6 @@ class RecordPageMixin:
         self._append_play_log("请求停止…")
 
     def _apply_player_status(self, text: str, progress):
-        if progress is not None:
-            try:
-                self.progress.set(max(0.0, min(1.0, float(progress))))
-            except Exception:
-                pass
         if text:
             self.play_pill.set(text[:16], theme.OK if "运行" in text else theme.MUTED)
             if "第" in text:
@@ -865,7 +856,6 @@ class RecordPageMixin:
         self._set_header("空闲", theme.OK)
         if reason == "finished":
             self.play_pill.set("已完成", theme.OK)
-            self.progress.set(1.0)
             self._append_play_log("回放完成")
         elif reason == "stopped":
             self.play_pill.set("已停止", theme.WARN)

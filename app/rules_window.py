@@ -95,7 +95,9 @@ class ActionDialog(ctk.CTkToplevel):
         self.inline = inline
         self.action = copy.deepcopy(action or {"type": "click"})
         self.title("编辑动作")
-        self.geometry("520x620")
+        self.geometry("620x660")
+        self.minsize(620, 620)
+        self.resizable(False, True)
         self.configure(fg_color=theme.BG)
         self.transient(master)
         apply_window_icon(self)
@@ -432,8 +434,9 @@ class RuleDialog(ctk.CTkToplevel):
         self._drag_motion_id = None
         self._drag_release_id = None
         self.title("编辑监控规则")
-        self.geometry("900x760")
-        self.minsize(820, 650)
+        self.geometry("1000x780")
+        self.resizable(False, True)
+        self.minsize(1000, 720)
         self.configure(fg_color=theme.BG)
         self.transient(master)
         apply_window_icon(self)
@@ -448,80 +451,102 @@ class RuleDialog(ctk.CTkToplevel):
         top.pack(fill="x", padx=16, pady=(0, 8))
         grid = ctk.CTkFrame(top, fg_color="transparent")
         grid.pack(fill="x", padx=14, pady=10)
-        grid.grid_columnconfigure(1, weight=1)
-        grid.grid_columnconfigure(3, weight=1)
+        for c in (1, 3, 5):
+            grid.grid_columnconfigure(c, weight=0)
 
-        label(grid, "规则名", 10, theme.MUTED).grid(row=0, column=0, sticky="w", pady=3)
+        label(grid, "规则名", 9, theme.MUTED).grid(row=0, column=0, sticky="w", pady=3)
         self.name_var = tk.StringVar(value=self.rule.get("name", "规则"))
-        entry(grid, width=180, textvariable=self.name_var).grid(row=0, column=1, sticky="ew", padx=6)
-        label(grid, "优先级", 10, theme.MUTED).grid(row=0, column=2, sticky="w", padx=(12, 0))
+        entry(grid, width=220, textvariable=self.name_var).grid(
+            row=0, column=1, sticky="w", padx=(6, 28))
+        label(grid, "优先级", 9, theme.MUTED).grid(row=0, column=2, sticky="w")
         self.priority_var = tk.StringVar(value=str(self.rule.get("priority", 50)))
-        entry(grid, width=80, textvariable=self.priority_var).grid(row=0, column=3, sticky="w", padx=6)
+        entry(grid, width=80, textvariable=self.priority_var).grid(
+            row=0, column=3, sticky="w", padx=(6, 10))
         label(grid, "越大越先", 9).grid(row=0, column=4, sticky="w")
 
-        label(grid, "阈值", 10, theme.MUTED).grid(row=1, column=0, sticky="w", pady=3)
+        label(grid, "阈值", 9, theme.MUTED).grid(row=1, column=0, sticky="w", pady=3)
         th = ctk.CTkFrame(grid, fg_color="transparent")
-        th.grid(row=1, column=1, sticky="ew", padx=6, pady=3)
+        th.grid(row=1, column=1, sticky="w", padx=(6, 28), pady=3)
         self.threshold_var = tk.DoubleVar(value=float(self.rule.get("threshold", 0.85)))
         self.threshold_slider = ctk.CTkSlider(th, from_=0.5, to=0.99, number_of_steps=49,
-                                              variable=self.threshold_var,
+                                              width=200, variable=self.threshold_var,
                                               progress_color=theme.ACCENT,
                                               command=lambda _v: self.th_label.configure(
                                                   text="%.2f" % self.threshold_var.get()))
-        self.threshold_slider.pack(side="left", fill="x", expand=True)
+        self.threshold_slider.pack(side="left")
         self.th_label = ctk.CTkLabel(th, text="%.2f" % self.threshold_var.get(), width=42,
                                      font=(theme.MONO, theme.fs(10)), text_color=theme.ACCENT)
         self.th_label.pack(side="left", padx=6)
 
-        label(grid, "冷却(ms)", 10, theme.MUTED).grid(row=1, column=2, sticky="w", padx=(12, 0))
+        label(grid, "冷却(ms)", 9, theme.MUTED).grid(row=1, column=2, sticky="w")
         self.cooldown_var = tk.StringVar(value=str(self.rule.get("cooldown_ms", 1000)))
-        entry(grid, width=80, textvariable=self.cooldown_var).grid(row=1, column=3, sticky="w", padx=6)
+        entry(grid, width=80, textvariable=self.cooldown_var).grid(
+            row=1, column=3, sticky="w", padx=(6, 10))
+        label(grid, "两次命中间隔", 9).grid(row=1, column=4, sticky="w")
 
-        label(grid, "稳定帧", 10, theme.MUTED).grid(row=2, column=0, sticky="w", pady=3)
+        label(grid, "稳定帧", 9, theme.MUTED).grid(row=2, column=0, sticky="w", pady=3)
         self.stable_var = tk.StringVar(value=str(self.rule.get("stable_frames", 1)))
-        entry(grid, width=80, textvariable=self.stable_var).grid(row=2, column=1, sticky="w", padx=6)
-        label(grid, "最大次数", 10, theme.MUTED).grid(row=2, column=2, sticky="w", padx=(12, 0))
+        entry(grid, width=80, textvariable=self.stable_var).grid(
+            row=2, column=1, sticky="w", padx=(6, 28))
+        label(grid, "最大次数", 9, theme.MUTED).grid(row=2, column=2, sticky="w")
         self.max_var = tk.StringVar(value=str(self.rule.get("max_triggers", 0)))
-        entry(grid, width=80, textvariable=self.max_var).grid(row=2, column=3, sticky="w", padx=6)
+        entry(grid, width=80, textvariable=self.max_var).grid(
+            row=2, column=3, sticky="w", padx=(6, 10))
         label(grid, "0=不限", 9).grid(row=2, column=4, sticky="w")
-        label(grid, "轮询ms", 10, theme.MUTED).grid(row=2, column=5, sticky="w", padx=(10, 0))
+        label(grid, "轮询ms", 9, theme.MUTED).grid(row=2, column=5, sticky="w", padx=(20, 0))
         self.poll_var = tk.StringVar(value=str(self.rule.get("poll_ms", 0)))
-        entry(grid, width=70, textvariable=self.poll_var).grid(row=2, column=6, sticky="w", padx=6)
+        entry(grid, width=70, textvariable=self.poll_var).grid(
+            row=2, column=6, sticky="w", padx=6)
         label(grid, "0=跟随场景", 9).grid(row=2, column=7, sticky="w")
 
         self.absence_var = tk.BooleanVar(value=bool(self.rule.get("require_absence", True)))
         ctk.CTkSwitch(grid, text="只在图标从无到有时触发", variable=self.absence_var,
-                      font=(theme.FONT, theme.fs(10)), progress_color=theme.ACCENT).grid(
-            row=3, column=0, columnspan=3, sticky="w", pady=(6, 2))
+                      font=(theme.FONT, theme.fs(9)), progress_color=theme.ACCENT).grid(
+            row=3, column=0, columnspan=3, sticky="w", pady=(10, 2))
         self.enabled_var = tk.BooleanVar(value=bool(self.rule.get("enabled", True)))
-        ctk.CTkSwitch(grid, text="启用该规则", variable=self.enabled_var,
-                      font=(theme.FONT, theme.fs(10)), progress_color=theme.OK).grid(
-            row=3, column=3, columnspan=1, sticky="w", pady=(6, 2))
+        self.enabled_switch = ctk.CTkSwitch(grid, text="启用该规则", variable=self.enabled_var,
+                                            font=(theme.FONT, theme.fs(9)),
+                                            progress_color=theme.OK,
+                                            command=self._on_enabled_switch)
+        self.enabled_switch.grid(row=3, column=3, sticky="w", pady=(10, 2))
         self.resident_var = tk.BooleanVar(value=bool(self.rule.get("resident", False)))
-        ctk.CTkSwitch(grid, text="常驻监控", variable=self.resident_var,
-                      font=(theme.FONT, theme.fs(10)), progress_color=theme.ACCENT).grid(
-            row=3, column=4, sticky="w", pady=(6, 2))
+        self.resident_switch = ctk.CTkSwitch(grid, text="常驻监控", variable=self.resident_var,
+                                             font=(theme.FONT, theme.fs(9)),
+                                             progress_color=theme.ACCENT,
+                                             command=self._on_resident_switch)
+        self.resident_switch.grid(row=3, column=4, columnspan=2, sticky="w",
+                                  padx=(28, 0), pady=(10, 2))
+        self._apply_switch_link()
 
-        label(grid, "关联组", 10, theme.MUTED).grid(row=4, column=0, sticky="w", pady=3)
+        label(grid, "关联组", 9, theme.MUTED).grid(row=4, column=0, sticky="w", pady=(6, 3))
         cur_group = self.rule.get("group", "")
-        cur_name = next((l.get("name", l.get("id", "")) for l in self.links if l.get("id") == cur_group), "（独立）")
+        cur_name = next((l.get("name", l.get("id", "")) for l in self.links
+                         if l.get("id") == cur_group), "（独立）")
         self.group_var = tk.StringVar(value=cur_name)
         names = ["（独立）"] + [l.get("name", l.get("id", "")) for l in self.links]
-        ctk.CTkOptionMenu(grid, variable=self.group_var, values=names, width=180, height=28,
-                          fg_color=theme.CARD2, button_color=theme.LINE).grid(
-            row=4, column=1, sticky="w", padx=6)
-        label(grid, "二级搜索范围", 10, theme.MUTED).grid(row=5, column=0, sticky="w", pady=3)
+        ctk.CTkOptionMenu(grid, variable=self.group_var, values=names, width=200, height=28,
+                          fg_color=theme.CARD2, button_color=theme.LINE,
+                          font=(theme.FONT, theme.fs(10)),
+                          dropdown_font=(theme.FONT, theme.fs(10))).grid(
+            row=4, column=1, columnspan=2, sticky="w", padx=(6, 0), pady=(6, 3))
+
+        label(grid, "二级搜索范围", 9, theme.MUTED).grid(
+            row=5, column=0, sticky="w", pady=(6, 3))
         self.roi = list(self.rule.get("roi") or [0, 0, 0, 0])
-        self.roi_label = label(grid, "", 9, theme.TEXT, anchor="w")
-        self.roi_label.grid(row=5, column=1, sticky="w", padx=6)
         roi_btn = ctk.CTkFrame(grid, fg_color="transparent")
-        roi_btn.grid(row=5, column=2, columnspan=3, sticky="w", padx=(12, 0))
-        ctk.CTkButton(roi_btn, text="框选二级范围", width=108, height=26,
-                      fg_color=theme.ACCENT, text_color="#04121f",
-                      command=self._select_roi).pack(side="left")
-        ctk.CTkButton(roi_btn, text="整个监控区域", width=100, height=26,
-                      fg_color=theme.CARD2, hover_color=theme.LINE,
-                      command=self._clear_roi).pack(side="left", padx=6)
+        roi_btn.grid(row=5, column=1, columnspan=2, sticky="w", padx=(6, 0), pady=(6, 3))
+        self.btn_roi_all = ctk.CTkButton(roi_btn, text="整个监控区域", width=118, height=28,
+                                         fg_color=theme.ACCENT, text_color="#04121f",
+                                         hover_color="#0ea5e9", font=(theme.FONT, theme.fs(9)),
+                                         command=self._clear_roi)
+        self.btn_roi_all.pack(side="left")
+        self.btn_roi_pick = ctk.CTkButton(roi_btn, text="框选二级范围", width=118, height=28,
+                                          fg_color="transparent", text_color=theme.TEXT,
+                                          hover_color=theme.CARD2, font=(theme.FONT, theme.fs(9)),
+                                          command=self._select_roi)
+        self.btn_roi_pick.pack(side="left", padx=8)
+        self.roi_label = label(grid, "", 9, theme.MUTED, anchor="w")
+        self.roi_label.grid(row=5, column=3, columnspan=4, sticky="w", padx=(16, 0))
         self._refresh_roi_label()
 
         icon_row = ctk.CTkFrame(top, fg_color="transparent")
@@ -531,9 +556,11 @@ class RuleDialog(ctk.CTkToplevel):
         self.icon_preview.pack(side="left")
         ctk.CTkButton(icon_row, text="从监控区域截图圈选图标", width=180, height=34,
                       fg_color=theme.OK, text_color="#04121f",
+                      font=(theme.FONT, theme.fs(10)),
                       command=self._crop_icon).pack(side="left", padx=(10, 4))
         ctk.CTkButton(icon_row, text="从图标库选择", width=110, height=34,
                       fg_color=theme.PURPLE, text_color="white",
+                      font=(theme.FONT, theme.fs(10)),
                       command=self._pick_from_library).pack(side="left", padx=4)
         self.tpl_label = label(icon_row, self.template or "未选择", 9, theme.MUTED)
         self.tpl_label.pack(side="left", padx=6)
@@ -544,7 +571,8 @@ class RuleDialog(ctk.CTkToplevel):
         bar = ctk.CTkFrame(act_card.body, fg_color="transparent")
         bar.pack(fill="x", pady=(0, 6))
         ctk.CTkButton(bar, text="添加动作", width=96, height=28, fg_color=theme.ACCENT,
-                      text_color="#04121f", command=self._add_action).pack(side="left")
+                      text_color="#04121f", font=(theme.FONT, theme.fs(10)),
+                      command=self._add_action).pack(side="left")
         label(bar, "动作类型在弹窗中选择", 9).pack(side="left", padx=8)
         self.actions_scroll = ctk.CTkScrollableFrame(act_card.body, fg_color=theme.BG2,
                                                      corner_radius=8, height=190)
@@ -556,7 +584,8 @@ class RuleDialog(ctk.CTkToplevel):
         mbar = ctk.CTkFrame(miss_card.body, fg_color="transparent")
         mbar.pack(fill="x", pady=(0, 6))
         ctk.CTkButton(mbar, text="添加消失动作", width=110, height=28, fg_color=theme.PURPLE,
-                      text_color="white", command=self._add_miss_action).pack(side="left")
+                      text_color="white", font=(theme.FONT, theme.fs(10)),
+                      command=self._add_miss_action).pack(side="left")
         self.miss_scroll = ctk.CTkScrollableFrame(miss_card.body, fg_color=theme.BG2,
                                                    corner_radius=8, height=120)
         self.miss_scroll.pack(fill="x", expand=True)
@@ -565,16 +594,48 @@ class RuleDialog(ctk.CTkToplevel):
         bottom = ctk.CTkFrame(self, fg_color="transparent")
         bottom.pack(fill="x", padx=16, pady=(0, 12))
         ctk.CTkButton(bottom, text="保存规则", height=38, fg_color=theme.OK,
-                      text_color="#04121f", command=self._save).pack(side="left", fill="x", expand=True)
+                      text_color="#04121f", font=(theme.FONT, theme.fs(11)),
+                      command=self._save).pack(side="left", fill="x", expand=True)
         ctk.CTkButton(bottom, text="取消", width=90, height=38, fg_color=theme.CARD2,
-                      hover_color=theme.LINE, command=self.destroy).pack(side="left", padx=(8, 0))
+                      hover_color=theme.LINE, font=(theme.FONT, theme.fs(11)),
+                      command=self.destroy).pack(side="left", padx=(8, 0))
+
+    def _on_enabled_switch(self):
+        if not self.enabled_var.get():
+            self.resident_var.set(False)
+        self._apply_switch_link()
+
+    def _on_resident_switch(self):
+        if not self.enabled_var.get():
+            self.resident_var.set(False)
+        self._apply_switch_link()
+
+    def _apply_switch_link(self):
+        try:
+            self.resident_switch.configure(
+                state="normal" if self.enabled_var.get() else "disabled")
+        except Exception:
+            pass
 
     def _refresh_roi_label(self):
         roi = self.roi or [0, 0, 0, 0]
-        if len(roi) != 4 or roi[2] <= 0 or roi[3] <= 0:
-            self.roi_label.configure(text="整个监控区域")
+        custom = len(roi) == 4 and roi[2] > 0 and roi[3] > 0
+        if custom:
+            self.roi_label.configure(text="X=%d  Y=%d  宽=%d  高=%d" % tuple(roi[:4]),
+                                     text_color=theme.TEXT)
         else:
-            self.roi_label.configure(text="X=%d Y=%d  宽=%d 高=%d" % (roi[0], roi[1], roi[2], roi[3]))
+            self.roi_label.configure(text="默认：覆盖整个监控区域", text_color=theme.MUTED)
+        try:
+            self.btn_roi_all.configure(
+                fg_color=theme.ACCENT if not custom else "transparent",
+                text_color="#04121f" if not custom else theme.TEXT,
+                hover_color="#0ea5e9" if not custom else theme.CARD2)
+            self.btn_roi_pick.configure(
+                fg_color=theme.ACCENT if custom else "transparent",
+                text_color="#04121f" if custom else theme.TEXT,
+                hover_color="#0ea5e9" if custom else theme.CARD2)
+        except Exception:
+            pass
 
     def _select_roi(self):
         if self.region_shot is None:
@@ -639,8 +700,10 @@ class RuleDialog(ctk.CTkToplevel):
             label(row, "%02d" % (i + 1), 9, theme.LINE, width=30).pack(side="left")
             label(row, action_summary(a), 10, theme.TEXT, anchor="w").pack(side="left", fill="x", expand=True)
             ctk.CTkButton(row, text="编辑", width=50, height=24, fg_color=theme.CARD2,
+                      font=(theme.FONT, theme.fs(9)),
                           command=lambda idx=i: self._edit_action(idx)).pack(side="left", padx=3)
             ctk.CTkButton(row, text="删除", width=50, height=24, fg_color=theme.DANGER,
+                      font=(theme.FONT, theme.fs(9)),
                           command=lambda idx=i: self._delete_action(idx)).pack(side="left")
 
     def _drag_start(self, kind, idx):
@@ -727,8 +790,10 @@ class RuleDialog(ctk.CTkToplevel):
             label(row, action_summary(a), 10, theme.TEXT, anchor="w").pack(
                 side="left", fill="x", expand=True)
             ctk.CTkButton(row, text="编辑", width=50, height=24, fg_color=theme.CARD2,
+                      font=(theme.FONT, theme.fs(9)),
                           command=lambda idx=i: self._edit_miss_action(idx)).pack(side="left", padx=3)
             ctk.CTkButton(row, text="删除", width=50, height=24, fg_color=theme.DANGER,
+                      font=(theme.FONT, theme.fs(9)),
                           command=lambda idx=i: self._delete_miss_action(idx)).pack(side="left")
 
     def _add_miss_action(self):
@@ -768,7 +833,7 @@ class RuleDialog(ctk.CTkToplevel):
         r["template_rect"] = list(self.template_rect)
         r["roi"] = list(self.roi)
         r["actions"] = list(self.actions)
-        r["resident"] = bool(self.resident_var.get())
+        r["resident"] = bool(self.resident_var.get()) and bool(r["enabled"])
         r["miss_actions"] = list(self.miss_actions)
         gname = self.group_var.get()
         if gname == "（独立）":
@@ -797,7 +862,9 @@ class LinkDialog(ctk.CTkToplevel):
         self.link = copy.deepcopy(link or {})
         self.rules = rules or []
         self.title("关联组")
-        self.geometry("560x620")
+        self.geometry("620x640")
+        self.minsize(620, 600)
+        self.resizable(False, True)
         self.configure(fg_color=theme.BG)
         self.transient(master)
         apply_window_icon(self)
@@ -1045,7 +1112,9 @@ class RulesWindow(ctk.CTkToplevel):
         from .action_list import ActionList
         win = ctk.CTkToplevel(self)
         win.title("全部规则消失时动作")
-        win.geometry("620x520")
+        win.geometry("620x560")
+        win.minsize(620, 520)
+        win.resizable(False, True)
         win.configure(fg_color=theme.BG)
         win.transient(self)
         apply_window_icon(win)
@@ -1287,8 +1356,9 @@ class IconPickerDialog(ctk.CTkToplevel):
         super().__init__(master)
         self.on_pick = on_pick
         self.title("从图标库选择")
-        self.geometry("820x620")
-        self.minsize(700, 500)
+        self.geometry("820x640")
+        self.minsize(820, 600)
+        self.resizable(False, True)
         self.configure(fg_color=theme.BG)
         self.transient(master)
         apply_window_icon(self)

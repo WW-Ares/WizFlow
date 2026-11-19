@@ -40,6 +40,22 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
     def __init__(self) -> None:
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
+        # 统一默认字体族与字号：未显式写 font 的控件也跟随界面缩放
+        ctk.ThemeManager.theme["CTkFont"]["family"] = theme.FONT
+        ctk.ThemeManager.theme["CTkFont"]["size"] = theme.fs(13)
+
+        # 下拉列表字体跟随当前显示值，避免列表项被默认字号放大
+        if not getattr(ctk.CTkOptionMenu, "_wf_font_patched", False):
+            _orig_menu_init = ctk.CTkOptionMenu.__init__
+
+            def _wf_menu_init(self, *args, **kwargs):
+                _f = kwargs.get("font")
+                if _f is not None and kwargs.get("dropdown_font") is None:
+                    kwargs["dropdown_font"] = _f
+                _orig_menu_init(self, *args, **kwargs)
+
+            ctk.CTkOptionMenu.__init__ = _wf_menu_init
+            ctk.CTkOptionMenu._wf_font_patched = True
         super().__init__(fg_color=theme.BG)
         self.title("%s  v%s" % (APP_NAME, APP_VERSION))
         self._set_window_icon()
@@ -134,26 +150,27 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         box.pack(side="left")
         ctk.CTkLabel(box, text="WizFlow", font=(theme.FONT, theme.fs(20), "bold"),
                      text_color=theme.TEXT).pack(anchor="w")
-        ctk.CTkLabel(box, text="键鼠录制 · 区域监控 · 位置同步 · 虚拟屏保活",
+        ctk.CTkLabel(box, text="键鼠录制 · 图片识别 · 区域监控 · 自动化任务",
                      font=(theme.FONT, theme.fs(10)), text_color=theme.MUTED).pack(anchor="w")
 
         right = ctk.CTkFrame(head, fg_color="transparent")
         right.grid(row=0, column=2, padx=20, sticky="e")
         self.hud_var = tk.BooleanVar(value=bool(self.cfg.get("hud.enabled", True)))
-        ctk.CTkSwitch(right, text="悬浮窗", variable=self.hud_var, width=54,
-                      font=(theme.FONT, theme.fs(10)), progress_color=theme.ACCENT,
-                      command=self._toggle_hud).pack(side="left", padx=(0, 14))
-        self.hotkey_hint = ctk.CTkLabel(right, text="", font=(theme.MONO, theme.fs(10)),
+        ctk.CTkSwitch(right, text="悬浮窗", variable=self.hud_var, width=58,
+                      font=(theme.FONT, theme.fs(12)), progress_color=theme.ACCENT,
+                      command=self._toggle_hud).pack(side="left", padx=(0, 8))
+        self.hotkey_hint = ctk.CTkLabel(right, text="", font=(theme.MONO, theme.fs(12)),
                                         text_color=theme.MUTED)
-        self.hotkey_hint.pack(side="left", padx=(0, 14))
+        self.hotkey_hint.pack(side="left", padx=(0, 8))
         self._refresh_header_hotkeys()
-        self.header_pill = Pill(right, "空闲", theme.OK, width=120)
+        self.header_pill = Pill(right, "空闲", theme.OK, width=116, height=30,
+                                font=(theme.FONT, theme.fs(13), "bold"))
         self.header_pill.pack(side="left")
 
     def _refresh_header_hotkeys(self):
         try:
             self.hotkey_hint.configure(
-                text="%s 启动/暂停  ·  %s 停止  ·  %s 录制" % (
+                text="%s 启动/暂停 · %s 停止 · %s 录制" % (
                     self.cfg.get("hotkeys.start_pause", "F6"),
                     self.cfg.get("hotkeys.stop", "F7"),
                     self.cfg.get("hotkeys.record", "F8")))
@@ -161,7 +178,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             pass
 
     def _build_sidebar(self):
-        holder = ctk.CTkFrame(self, fg_color=theme.BG2, corner_radius=0, width=90)
+        holder = ctk.CTkFrame(self, fg_color=theme.BG2, corner_radius=0, width=124)
         holder.grid(row=1, column=0, sticky="nsw")
         holder.grid_propagate(False)
         holder.grid_rowconfigure(0, weight=1)
@@ -172,28 +189,28 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self.nav: dict[str, ctk.CTkButton] = {}
         items = [("record", "▣ 录制回放"), ("monitor", "◎ 区域监控"), ("settings", "⚙ 设置")]
         for i, (key, text) in enumerate(items):
-            b = ctk.CTkButton(side, text=text, anchor="w", height=38, width=74,
+            b = ctk.CTkButton(side, text=text, anchor="w", height=38, width=112,
                               fg_color="transparent", hover_color=theme.CARD2,
-                              text_color=theme.MUTED, font=(theme.FONT, theme.fs(10)),
+                              text_color=theme.MUTED, font=(theme.FONT, theme.fs(11.5)),
                               command=lambda k=key: self._show_page(k))
-            b.pack(padx=6, pady=(14 if i == 0 else 4, 0))
+            b.pack(padx=6, pady=(10 if i == 0 else 2, 0))
             self.nav[key] = b
 
-        ctk.CTkFrame(side, height=1, fg_color=theme.LINE).pack(fill="x", padx=10, pady=12)
+        ctk.CTkFrame(side, height=1, fg_color=theme.LINE).pack(fill="x", padx=10, pady=10)
 
         ctk.CTkLabel(side, text="v%s" % APP_VERSION, font=(theme.MONO, theme.fs(9)),
                      text_color=theme.MUTED).pack(side="bottom", pady=(0, 10))
 
         info = ctk.CTkFrame(side, fg_color=theme.CARD, corner_radius=10)
         info.pack(side="bottom", fill="x", padx=5, pady=(0, 6))
-        ctk.CTkLabel(info, text="运行环境", font=(theme.FONT, theme.fs(9), "bold"),
+        ctk.CTkLabel(info, text="运行环境", font=(theme.FONT, theme.fs(10), "bold"),
                      text_color=theme.MUTED).pack(anchor="center", pady=(8, 2))
         admin = is_admin()
         pill = Pill(info, "管理员" if admin else "普通权限",
                     theme.OK if admin else theme.WARN)
         pill.pack(anchor="center", pady=(0, 4))
         ctk.CTkLabel(info, text="游戏管理员运行\n需右键管理员",
-                     font=(theme.FONT, theme.fs(7)), text_color=theme.MUTED,
+                     font=(theme.FONT, theme.fs(9)), text_color=theme.MUTED,
                      justify="center").pack(anchor="center", padx=2, pady=(0, 6))
 
     def _build_content(self):
