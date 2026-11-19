@@ -26,6 +26,7 @@ def main() -> int:
         "--hidden-import", "pynput.keyboard._win32",
         "--hidden-import", "pynput.mouse._win32",
         "--hidden-import", "PIL._tkinter_finder",
+        "--hidden-import", "pystray._win32",
         str(ROOT / "main.py"),
     ]
     print(" ".join(args))

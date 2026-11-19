@@ -11,7 +11,7 @@ from pathlib import Path
 
 APP_NAME = "WizFlow"
 APP_ID = "WizFlow.Desktop"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 
 
 def app_dir() -> Path:
@@ -144,5 +144,3 @@ class Config:
     def update(self, patch: dict) -> None:
         with self._lock:
             self.data = _deep_merge(self.data, patch)
-
-

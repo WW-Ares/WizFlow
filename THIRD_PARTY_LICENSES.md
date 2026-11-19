@@ -10,6 +10,7 @@ WizFlow 以 **GPL-2.0** 发布。以下是运行时/构建依赖的许可证信�
 | mss | 屏幕抓取 | MIT |
 | Pillow | 图像读写、预览 | MIT-CMU / HPND |
 | pynput | 全局键鼠录制 | LGPL-3.0 |
+| pystray | 系统托盘图标 | LGPL-3.0 |
 | pywin32 | Windows API、键鼠注入 | PSF |
 | json5 | 兼容 KeymouseGo 脚本格式 | MIT |
 | darkdetect | 主题检测（CustomTkinter 依赖） | BSD-3-Clause |
@@ -17,14 +18,14 @@ WizFlow 以 **GPL-2.0** 发布。以下是运行时/构建依赖的许可证信�
 | Parsec VDD (parsec-vdd) | 虚拟显示器驱动（`assets/vdd/driver`） | MIT |
 | nefcon (nefconw.exe) | 驱动/设备节点安装工具 | MIT |
 
-## pynput / LGPL-3.0
+## pynput / pystray / LGPL-3.0
 
-`pynput` 使用 LGPL-3.0。闭源分发 WizFlow 时：
+`pynput` 与 `pystray` 使用 LGPL-3.0。闭源分发 WizFlow 时：
 
-- 保留 pynput 的 LGPL-3.0 许可证文本；
-- 保留 pynput 的版权声明；
-- 允许用户替换/重新链接 pynput；
-- 如果修改了 pynput 本身，修改部分按 LGPL-3.0 开源。
+- 保留 pynput / pystray 的 LGPL-3.0 许可证文本；
+- 保留 pynput / pystray 的版权声明；
+- 允许用户替换/重新链接 pynput / pystray；
+- 如果修改了 pynput / pystray 本身，修改部分按 LGPL-3.0 开源。
 
 WizFlow 本身以 GPL-2.0 发布，源码公开，因此上述 LGPL 合规要求自然满足。
 

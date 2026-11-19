@@ -4,10 +4,12 @@ from __future__ import annotations
 import datetime
 import os
 import queue
+import subprocess
 import threading
 import time
 import traceback
 import tkinter as tk
+from tkinter import messagebox
 
 import customtkinter as ctk
 from PIL import Image
@@ -16,6 +18,7 @@ from config import (APP_NAME, APP_VERSION, CONFIG_FILE, ICONS_DIR, LOGS_DIR,
                     ROOT, SCRIPTS_DIR, Config, asset_path)
 from . import theme
 from .hud import HudWindow
+from .tray import TrayIcon
 from core.hotkeys import HotkeyManager, parse_hotkey
 from core.log import log
 from core.monitor import MonitorProfile, ProbeResult
@@ -70,7 +73,12 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self._build_content()
         self._build_statusbar()
         self.hud: HudWindow | None = None
+        self.tray: TrayIcon | None = None
+        self._quitting = False
+        self._tray_hint = False
+        self.recording = False
         self._build_hud()
+        self._build_tray()
 
         self._refresh_scripts()
         self._refresh_icons()
@@ -242,10 +250,53 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         if self.hud is None:
             self._build_hud()
             return
+        # 重新开关悬浮窗时自动取消穿透，避免用户无法再点回设置
+        try:
+            self.hud.set_click_through(False)
+        except Exception:
+            pass
         if on:
             self.hud.show()
         else:
             self.hud.hide()
+
+    # ================================================================ 托盘
+    def _build_tray(self):
+        try:
+            self.tray = TrayIcon(self, asset_path("logo.png"))
+            if not self.tray.start():
+                self.tray = None
+        except Exception as exc:
+            log("托盘创建失败: %s" % exc, "WARN")
+            self.tray = None
+
+    def _restore_window(self):
+        try:
+            self.deiconify()
+            self.state("normal")
+            self.lift()
+            self.focus_force()
+            self.attributes("-topmost", True)
+            self.after(200, lambda: self.attributes("-topmost", False))
+        except Exception:
+            pass
+
+    def _handle_tray(self, action: str):
+        if action == "show":
+            self._restore_window()
+        elif action == "toggle_hud":
+            self.hud_var.set(not bool(self.hud_var.get()))
+            self._toggle_hud()
+        elif action == "hud_click_through_off":
+            if self.hud is not None:
+                self.hud.set_click_through(False)
+                self._toast("已取消悬浮窗鼠标穿透", "ok")
+        elif action == "quit":
+            self._quit_app()
+
+    def _quit_app(self):
+        self._quitting = True
+        self.on_close()
 
     def _open_scripts_dir(self):
         os.startfile(str(SCRIPTS_DIR))
@@ -284,6 +335,8 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
                     self._on_parsec_result(msg[1], msg[2] if len(msg) > 2 else "")
                 elif kind == "toast":
                     self._toast(msg[1], msg[2] if len(msg) > 2 else "info")
+                elif kind == "tray":
+                    self._handle_tray(msg[1])
         except queue.Empty:
             pass
         except Exception as exc:
@@ -357,7 +410,8 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self.after(1500, self._refresh_vd_status)
 
     # ================================================================ 退出
-    def on_close(self):
+    def _shutdown_backends(self):
+        """停止热键 / 录屏 / 回放 / 保活，不销毁窗口。重启和退出共用。"""
         try:
             if self.live_stop:
                 self.live_stop.set()
@@ -365,6 +419,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             self.recorder.stop()
             if self.hotkeys:
                 self.hotkeys.stop()
+                self.hotkeys = None
             if keepalive.enabled:
                 keepalive.disable()
             else:
@@ -375,13 +430,55 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
                     vp.ensure_off(wait_ms=1200)
             except Exception:
                 pass
-            self._save_script(silent=True) if self.events and self.script_path else None
+        except Exception:
+            log("后台清理异常: %s" % traceback.format_exc(), "ERROR")
+
+    def on_close(self):
+        if getattr(self, "_editing", False):
+            ans = messagebox.askyesnocancel(
+                "未保存的修改",
+                "事件列表还有未保存的修改。\n\n是：保存后继续\n否：放弃修改并继续\n取消：返回继续编辑")
+            if ans is None:
+                self._quitting = False
+                return
+            if ans:
+                if not self._save_edit(silent=True):
+                    self._quitting = False
+                    return
+            else:
+                self._discard_edit()
+
+        if not self._quitting:
+            if self.tray is None:
+                # 托盘不可用时直接退出，避免窗口消失后无法恢复
+                self._quitting = True
+            else:
+                # 关闭按钮 -> 最小化到托盘，不退出
+                try:
+                    self.withdraw()
+                except Exception:
+                    pass
+                if not self._tray_hint:
+                    self._tray_hint = True
+                    self.tray.notify("已最小化到托盘，双击图标恢复")
+                return
+
+        self._shutdown_backends()
+        try:
+            if not getattr(self, "_editing", False):
+                self._save_script(silent=True) if self.events and self.script_path else None
             self._sync_profile()
         except Exception:
-            log("退出清理异常: %s" % traceback.format_exc(), "ERROR")
+            log("退出保存异常: %s" % traceback.format_exc(), "ERROR")
         try:
             if self.hud is not None:
                 self.hud.destroy()
+        except Exception:
+            pass
+        try:
+            if self.tray is not None:
+                self.tray.stop()
+                self.tray = None
         except Exception:
             pass
         try:
@@ -417,7 +514,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
 
     def _ui_smoke_step(self):
         if not self._smoke_pages:
-            self.after(400, self.on_close)
+            self.after(400, self._quit_app)
             return
         page = self._smoke_pages.pop(0)
         try:

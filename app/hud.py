@@ -1,4 +1,9 @@
-"""迷你悬浮窗：259×76，右上角，状态胶囊 + F6/F7/F8 一键操作。"""
+"""迷你悬浮窗：259×76，右上角，状态胶囊 + F6/F7/F8 一键操作。
+
+背景层与文字层分成两个 Toplevel：
+- 背景层允许调透明度，只画卡片和色块；
+- 文字层始终 100% 不透明，保证任何透明度下字体都清晰。
+"""
 from __future__ import annotations
 
 import ctypes
@@ -28,8 +33,14 @@ STATE_STYLE = {
 GWL_EXSTYLE = -20
 WS_EX_LAYERED = 0x00080000
 WS_EX_TRANSPARENT = 0x00000020
-WS_EX_TOOLWINDOW = 0x00000080
-WS_EX_NOACTIVATE = 0x08000000
+
+
+def _shadow_text(canvas, x, y, text, font, fill, anchor="w", tags=()):
+    """文字加深色投影，背景调透明后仍然清晰。"""
+    canvas.create_text(x + 1, y + 1, text=text, font=font, fill="#05080d",
+                       anchor=anchor, tags=tags)
+    return canvas.create_text(x, y, text=text, font=font, fill=fill,
+                              anchor=anchor, tags=tags)
 
 
 def _round_rect(canvas: tk.Canvas, x1, y1, x2, y2, r, **kw):
@@ -44,54 +55,50 @@ class HudWindow(tk.Toplevel):
         super().__init__(app)
         self.app = app
         self.cfg = cfg
-        self.overrideredirect(True)
-        self.attributes("-topmost", True)
-        self.configure(bg=TRANSPARENT)
-        try:
-            self.wm_attributes("-transparentcolor", TRANSPARENT)
-        except Exception:
-            pass
         self.alpha = float(cfg.get("hud.alpha", 1.0) or 1.0)
+        self.click_through = bool(cfg.get("hud.click_through", False))
+        self._state = "idle"
+        self._drag = None
+        self._chip_tags = []
+
+        self.bg = tk.Toplevel(app)
+        for w in (self, self.bg):
+            w.overrideredirect(True)
+            w.attributes("-topmost", True)
+            w.configure(bg=TRANSPARENT)
+            try:
+                w.wm_attributes("-transparentcolor", TRANSPARENT)
+            except Exception:
+                pass
         try:
-            self.attributes("-alpha", max(0.5, min(1.0, self.alpha)))
+            self.bg.attributes("-alpha", max(0.35, min(1.0, self.alpha)))
         except Exception:
             pass
-        self.click_through = bool(cfg.get("hud.click_through", False))
+
+        self.bg_canvas = tk.Canvas(self.bg, width=CARD_W, height=CARD_H, bg=TRANSPARENT,
+                                   highlightthickness=0, bd=0)
+        self.bg_canvas.pack()
+        self.canvas = tk.Canvas(self, width=CARD_W, height=CARD_H, bg=TRANSPARENT,
+                                highlightthickness=0, bd=0)
+        self.canvas.pack()
 
         self.f_title = tkfont.Font(family="Microsoft YaHei UI", size=-14, weight="bold")
         self.f_key = tkfont.Font(family="Consolas", size=-11, weight="bold")
         self.f_lbl = tkfont.Font(family="Microsoft YaHei UI", size=-12)
         self.f_pill = tkfont.Font(family="Microsoft YaHei UI", size=-12, weight="bold")
-        self.f_small = tkfont.Font(family="Microsoft YaHei UI", size=-10)
 
-        self.canvas = tk.Canvas(self, width=CARD_W, height=CARD_H, bg=TRANSPARENT,
-                                highlightthickness=0, bd=0)
-        self.canvas.pack()
-        self._drag = None
-        self._state = "idle"
         self._build_menu()
         self._draw()
         self._place()
-        self._apply_click_through(self.click_through)
-        self.canvas.bind("<Button-1>", self._drag_start)
-        self.canvas.bind("<B1-Motion>", self._drag_move)
-        self.canvas.bind("<ButtonRelease-1>", self._drag_end)
-        self.canvas.bind("<Button-3>", self._menu_popup)
-        self.bind("<Escape>", lambda _e: self.hide())
+        self.after(120, self._sync_windows)
+        self.after(200, lambda: self._apply_click_through(self.click_through))
 
-    # ------------------------------------------------------------ 绘制
-    def _chip_widths(self):
-        pad, gap = 10, 6
-        labels = self._chip_labels()
-        widths = []
-        for key, text in labels:
-            widths.append(pad + self.f_key.measure(key) + gap + self.f_lbl.measure(text) + pad)
-        if sum(widths) + 40 > CARD_W:
-            pad, gap = 7, 4
-            widths = []
-            for key, text in labels:
-                widths.append(pad + self.f_key.measure(key) + gap + self.f_lbl.measure(text) + pad)
-        return widths
+        for c in (self.canvas, self.bg_canvas):
+            c.bind("<Button-1>", self._drag_start)
+            c.bind("<B1-Motion>", self._drag_move)
+            c.bind("<ButtonRelease-1>", self._drag_end)
+            c.bind("<Button-3>", self._menu_popup)
+        self.bind("<Escape>", lambda _e: self.hide())
 
     def _chip_labels(self):
         sa = str(self.cfg.get("hotkeys.start_pause", "F6") or "F6").upper()
@@ -99,54 +106,76 @@ class HudWindow(tk.Toplevel):
         rc = str(self.cfg.get("hotkeys.record", "F8") or "F8").upper()
         return [(sa, "启动/暂停"), (st, "停止"), (rc, "录制")]
 
-    def _draw(self):
-        c = self.canvas
-        c.delete("all")
-        # 卡片 + 顶部高光
-        _round_rect(c, 1, 1, CARD_W - 1, CARD_H - 1, 12, fill=BG, outline=BORDER, width=1)
-        c.create_line(18, 1, CARD_W - 18, 1, fill="#ffffff", stipple="gray25")
-
-        # Logo
-        c.create_polygon([15, 14, 29, 14, 32, 17, 32, 30, 29, 33, 15, 33, 12, 30, 12, 17],
-                         smooth=True, splinesteps=16, fill=theme.ACCENT, outline="")
-        c.create_line(17, 27, 21, 21, 25, 24, 29, 18, fill="#ffffff", width=2,
-                      capstyle="round", joinstyle="round")
-        c.create_text(39, 23, text="WizFlow", anchor="w", fill="#e8edf6", font=self.f_title)
-
-        # 状态胶囊
-        self._draw_pill()
-
-        # 三个键位：等间距
+    def _chip_widths(self):
+        pad, gap = 10, 6
         labels = self._chip_labels()
+        widths = [pad + self.f_key.measure(k) + gap + self.f_lbl.measure(v) + pad
+                  for k, v in labels]
+        if sum(widths) + 40 > CARD_W:
+            pad, gap = 7, 4
+            widths = [pad + self.f_key.measure(k) + gap + self.f_lbl.measure(v) + pad
+                      for k, v in labels]
+        return widths
+
+    def _chip_geometry(self):
         widths = self._chip_widths()
-        total = sum(widths)
-        space = (CARD_W - total) / 4.0
+        space = (CARD_W - sum(widths)) / 4.0
+        out = []
         x = space
+        for w in widths:
+            out.append((x, w))
+            x += w + space
+        return out
+
+    def _draw(self):
+        for c in (self.canvas, self.bg_canvas):
+            c.delete("all")
+        bc, fc = self.bg_canvas, self.canvas
+        _round_rect(bc, 1, 1, CARD_W - 1, CARD_H - 1, 12, fill=BG, outline="")
+        _round_rect(fc, 1, 1, CARD_W - 1, CARD_H - 1, 12, fill="", outline=BORDER, width=1)
+        fc.create_line(18, 2, CARD_W - 18, 2, fill="#ffffff", stipple="gray25")
+
+        fc.create_polygon([15, 14, 29, 14, 32, 17, 32, 30, 29, 33, 15, 33, 12, 30, 12, 17],
+                          smooth=True, splinesteps=16, fill=theme.ACCENT, outline="")
+        fc.create_line(17, 27, 21, 21, 25, 24, 29, 18, fill="#ffffff", width=2,
+                       capstyle="round", joinstyle="round")
+        _shadow_text(fc, 39, 23, "WizFlow", self.f_title, "#e8edf6", "w")
+
+        text, fill, line, fg = STATE_STYLE.get(self._state, STATE_STYLE["idle"])
+        pw = 12 + 6 + 5 + self.f_pill.measure(text) + 10
+        x2 = CARD_W - 12
+        x1 = x2 - pw
+        y1, y2 = 11, 32
+        _round_rect(bc, x1, y1, x2, y2, (y2 - y1) / 2, fill=fill, outline="")
+        _round_rect(fc, x1, y1, x2, y2, (y2 - y1) / 2, fill="", outline=line, width=1)
+        fc.create_oval(x1 + 10, 18, x1 + 16, 24, fill=line, outline="")
+        _shadow_text(fc, x1 + 21, (y1 + y2) / 2, text, self.f_pill, fg, "w")
+
+        labels = self._chip_labels()
+        geoms = self._chip_geometry()
         self._chip_tags = []
-        for i, ((key, text), w) in enumerate(zip(labels, widths)):
+        for i, ((key, text), (x, w)) in enumerate(zip(labels, geoms)):
             tag = "chip%d" % i
             self._chip_tags.append(tag)
             y1, y2 = 40, 66
-            _round_rect(c, x, y1, x + w, y2, 7, fill=CHIP_BG, outline=CHIP_LINE, width=1, tags=(tag,))
+            _round_rect(bc, x, y1, x + w, y2, 7, fill=CHIP_BG, outline="", tags=(tag,))
+            _round_rect(fc, x, y1, x + w, y2, 7, fill="", outline=CHIP_LINE, width=1, tags=(tag,))
             kw = self.f_key.measure(key)
             lw = self.f_lbl.measure(text)
-            inner = kw + 6 + lw
-            tx = x + (w - inner) / 2
-            c.create_text(tx, (y1 + y2) / 2, text=key, anchor="w", fill="#7dd3fc",
-                          font=self.f_key, tags=(tag,))
-            c.create_text(tx + kw + 6, (y1 + y2) / 2, text=text, anchor="w", fill="#d8e0ec",
-                          font=self.f_lbl, tags=(tag,))
-            c.tag_bind(tag, "<Enter>", lambda _e, t=tag: self._chip_hover(t, True))
-            c.tag_bind(tag, "<Leave>", lambda _e, t=tag: self._chip_hover(t, False))
-            c.tag_bind(tag, "<Button-1>", lambda _e, a=("start_pause", "stop", "record")[i]:
-                       self._chip_click(a))
-            x += w + space
+            tx = x + (w - (kw + 6 + lw)) / 2
+            _shadow_text(fc, tx, (y1 + y2) / 2, key, self.f_key, "#7dd3fc", "w", (tag,))
+            _shadow_text(fc, tx + kw + 6, (y1 + y2) / 2, text, self.f_lbl, "#d8e0ec", "w", (tag,))
+            action = ("start_pause", "stop", "record")[i]
+            for c in (bc, fc):
+                c.tag_bind(tag, "<Enter>", lambda _e, t=tag: self._chip_hover(t, True))
+                c.tag_bind(tag, "<Leave>", lambda _e, t=tag: self._chip_hover(t, False))
+                c.tag_bind(tag, "<Button-1>", lambda _e, a=action: self._chip_click(a))
 
     def _chip_hover(self, tag, on):
         if self.click_through:
             return
         try:
-            self.canvas.itemconfigure(tag, fill=CHIP_HOVER if on else CHIP_BG)
+            self.bg_canvas.itemconfigure(tag, fill=CHIP_HOVER if on else CHIP_BG)
         except Exception:
             pass
 
@@ -159,20 +188,6 @@ class HudWindow(tk.Toplevel):
             pass
         return "break"
 
-    def _draw_pill(self):
-        c = self.canvas
-        c.delete("pill")
-        text, fill, line, fg = STATE_STYLE.get(self._state, STATE_STYLE["idle"])
-        w = 12 + 6 + 5 + self.f_pill.measure(text) + 10
-        x2 = CARD_W - 12
-        x1 = x2 - w
-        y1, y2 = 11, 32
-        _round_rect(c, x1, y1, x2, y2, (y2 - y1) / 2, fill=fill, outline=line, width=1, tags=("pill",))
-        c.create_oval(x1 + 10, 18, x1 + 16, 24, fill=line, outline="", tags=("pill",))
-        c.create_text(x1 + 21, (y1 + y2) / 2, text=text, anchor="w", fill=fg,
-                      font=self.f_pill, tags=("pill",))
-
-    # ------------------------------------------------------------ 状态 / 位置
     def set_status(self, text: str, color: str | None = None):
         t = str(text or "")
         if "录制" in t:
@@ -185,7 +200,7 @@ class HudWindow(tk.Toplevel):
             state = "idle"
         if state != self._state:
             self._state = state
-            self._draw_pill()
+            self._draw()
 
     def refresh_hotkeys(self):
         self._draw()
@@ -201,7 +216,34 @@ class HudWindow(tk.Toplevel):
             y = 16
         x = max(vx, min(x, vx + vw - CARD_W))
         y = max(vy, min(y, vy + vh - CARD_H))
-        self.geometry("%dx%d+%d+%d" % (CARD_W, CARD_H, x, y))
+        geo = "%dx%d+%d+%d" % (CARD_W, CARD_H, x, y)
+        try:
+            self.geometry(geo)
+            self.bg.geometry(geo)
+        except Exception:
+            pass
+
+    def _sync_windows(self):
+        self._bind_owner()
+        try:
+            self.bg.lift()
+            self.lift()
+        except Exception:
+            pass
+
+    def _bind_owner(self):
+        """把文字层设为背景层的 owned window，Windows 会始终把它保持在上方。"""
+        try:
+            u32 = ctypes.windll.user32
+            u32.GetParent.restype = ctypes.c_void_p
+            u32.SetWindowLongPtrW.restype = ctypes.c_void_p
+            u32.SetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+            fg = u32.GetParent(self.winfo_id()) or self.winfo_id()
+            bg = u32.GetParent(self.bg.winfo_id()) or self.bg.winfo_id()
+            if fg and bg:
+                u32.SetWindowLongPtrW(fg, -8, bg)
+        except Exception:
+            pass
 
     def _drag_start(self, e):
         if self.click_through:
@@ -212,7 +254,12 @@ class HudWindow(tk.Toplevel):
         if not self._drag or self.click_through:
             return
         sx, sy, wx, wy = self._drag
-        self.geometry("+%d+%d" % (wx + e.x_root - sx, wy + e.y_root - sy))
+        x, y = wx + e.x_root - sx, wy + e.y_root - sy
+        try:
+            self.geometry("+%d+%d" % (x, y))
+            self.bg.geometry("+%d+%d" % (x, y))
+        except Exception:
+            pass
 
     def _drag_end(self, _e):
         if not self._drag:
@@ -226,10 +273,16 @@ class HudWindow(tk.Toplevel):
             x = vx + vw - CARD_W - 8
         if abs(y - vy) < 24:
             y = vy + 8
-        self.geometry("+%d+%d" % (x, y))
-        self.cfg.set("hud", {"enabled": bool(self.cfg.get("hud.enabled", True)),
-                             "x": int(x), "y": int(y), "saved": True,
-                             "alpha": self.alpha, "click_through": self.click_through})
+        try:
+            self.geometry("+%d+%d" % (x, y))
+            self.bg.geometry("+%d+%d" % (x, y))
+        except Exception:
+            pass
+        cfg_hud = dict(self.cfg.get("hud", {}) or {})
+        cfg_hud.update({"enabled": bool(self.cfg.get("hud.enabled", True)),
+                        "x": int(x), "y": int(y), "saved": True,
+                        "alpha": self.alpha, "click_through": self.click_through})
+        self.cfg.set("hud", cfg_hud)
         self.cfg.save()
 
     def _build_menu(self):
@@ -237,13 +290,14 @@ class HudWindow(tk.Toplevel):
                             activebackground="#1d4ed8", activeforeground="#ffffff",
                             bd=0, font=("Microsoft YaHei UI", 9))
         self.menu.add_command(label="打开主界面", command=self._show_main)
+        self.through_var = tk.BooleanVar(value=self.click_through)
         self.menu.add_checkbutton(label="鼠标穿透（只显示不挡点击）", command=self._toggle_through,
-                                  variable=tk.BooleanVar(value=self.click_through))
+                                  variable=self.through_var)
         alpha_menu = tk.Menu(self.menu, tearoff=0, bg="#141a24", fg="#e6edf7",
                              activebackground="#1d4ed8", activeforeground="#ffffff")
-        for v in (100, 90, 80, 70):
+        for v in (100, 90, 80, 70, 60, 50):
             alpha_menu.add_command(label="%d%%" % v, command=lambda a=v: self._set_alpha(a / 100.0))
-        self.menu.add_cascade(label="透明度", menu=alpha_menu)
+        self.menu.add_cascade(label="背景透明度", menu=alpha_menu)
         self.menu.add_separator()
         self.menu.add_command(label="隐藏悬浮窗", command=self._hide_from_menu)
 
@@ -253,14 +307,10 @@ class HudWindow(tk.Toplevel):
         try:
             self.menu.tk_popup(e.x_root, e.y_root)
         finally:
-            self.menu.grab_release()
-
-    def _hide_from_menu(self):
-        try:
-            self.app.hud_var.set(False)
-            self.app._toggle_hud()
-        except Exception:
-            self.hide()
+            try:
+                self.menu.grab_release()
+            except Exception:
+                pass
 
     def _show_main(self):
         try:
@@ -270,44 +320,48 @@ class HudWindow(tk.Toplevel):
         except Exception:
             pass
 
+    def _hide_from_menu(self):
+        try:
+            self.app.hud_var.set(False)
+            self.app._toggle_hud()
+        except Exception:
+            self.hide()
+
     def _toggle_through(self):
         self.set_click_through(not self.click_through)
 
     def set_click_through(self, on: bool):
         self.click_through = bool(on)
         self._apply_click_through(self.click_through)
-        self.cfg.set("hud.click_through", self.click_through)
+        cfg_hud = dict(self.cfg.get("hud", {}) or {})
+        cfg_hud["click_through"] = self.click_through
+        self.cfg.set("hud", cfg_hud)
         self.cfg.save()
         try:
-            self.menu.entryconfigure(1, label=("鼠标穿透（已开启）" if on else "鼠标穿透（只显示不挡点击）"))
+            self.through_var.set(self.click_through)
         except Exception:
             pass
 
     def _apply_click_through(self, on: bool):
-        # 只改分层窗口的 WS_EX_TRANSPARENT，不碰 LAYERED / NOACTIVATE：
-        # 给 Tk 的分层窗口重新设置扩展样式会把 alpha 清成 0，整窗变透明。
         try:
             u32 = ctypes.windll.user32
-            hwnds = [self.winfo_id(), u32.GetParent(self.winfo_id())]
-            for hwnd in hwnds:
-                if not hwnd:
-                    continue
-                style = u32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-                if on:
-                    if style & WS_EX_LAYERED:
-                        u32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_TRANSPARENT)
-                elif style & WS_EX_TRANSPARENT:
-                    u32.SetWindowLongW(hwnd, GWL_EXSTYLE, style & ~WS_EX_TRANSPARENT)
-            if on:
-                # 重新声明一次 Tk 的分层属性，确保颜色键和 alpha 没被系统重置
-                self.attributes("-alpha", self.alpha)
+            for win in (self, self.bg):
+                for hwnd in {win.winfo_id(), u32.GetParent(win.winfo_id())}:
+                    if not hwnd:
+                        continue
+                    style = u32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+                    if on:
+                        if style & WS_EX_LAYERED:
+                            u32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_TRANSPARENT)
+                    elif style & WS_EX_TRANSPARENT:
+                        u32.SetWindowLongW(hwnd, GWL_EXSTYLE, style & ~WS_EX_TRANSPARENT)
         except Exception:
             pass
 
     def _set_alpha(self, value: float):
-        self.alpha = max(0.5, min(1.0, float(value)))
+        self.alpha = max(0.35, min(1.0, float(value)))
         try:
-            self.attributes("-alpha", self.alpha)
+            self.bg.attributes("-alpha", self.alpha)
         except Exception:
             pass
         cfg_hud = dict(self.cfg.get("hud", {}) or {})
@@ -317,15 +371,29 @@ class HudWindow(tk.Toplevel):
 
     def show(self):
         try:
+            self.bg.deiconify()
             self.deiconify()
             self._place()
+            self.bg.attributes("-topmost", True)
             self.attributes("-topmost", True)
-            self._apply_click_through(self.click_through)
+            self.after(60, self._sync_windows)
+            self.after(120, lambda: self._apply_click_through(self.click_through))
         except Exception:
             pass
 
     def hide(self):
+        for w in (self, self.bg):
+            try:
+                w.withdraw()
+            except Exception:
+                pass
+
+    def destroy(self):
         try:
-            self.withdraw()
+            self.bg.destroy()
+        except Exception:
+            pass
+        try:
+            super().destroy()
         except Exception:
             pass

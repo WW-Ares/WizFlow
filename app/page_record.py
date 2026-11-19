@@ -23,6 +23,8 @@ class RecordPageMixin:
     def _build_record_page(self):
         outer, page = self._new_page()
         self.pages["record"] = outer
+        self._editing = False
+        self._draft: list[dict] | None = None
         page.grid_columnconfigure(0, weight=1)
         page.grid_rowconfigure(2, weight=1)
 
@@ -34,13 +36,13 @@ class RecordPageMixin:
         label(inner, "当前脚本", 11).pack(side="left", padx=(0, 8))
         self.script_var = tk.StringVar(value="（未选择）")
         self.script_menu = ctk.CTkOptionMenu(inner, variable=self.script_var, values=["（未选择）"],
-                                             width=330, height=32, fg_color=theme.CARD2,
+                                             width=250, height=32, fg_color=theme.CARD2,
                                              button_color=theme.LINE, button_hover_color=theme.ACCENT,
                                              dropdown_fg_color=theme.CARD2, font=(theme.FONT, theme.fs(11)),
                                              command=self._on_script_selected)
         self.script_menu.pack(side="left")
         self._btn(inner, "新建", self._new_script, width=64).pack(side="left", padx=(10, 0))
-        self._btn(inner, "保存", self._save_script, width=64, color=theme.ACCENT,
+        self._btn(inner, "保存", self._save_any, width=64, color=theme.ACCENT,
                   text_color="#04121f").pack(side="left", padx=6)
         self._btn(inner, "刷新", self._refresh_scripts, width=64).pack(side="left")
         self._btn(inner, "目录", self._open_scripts_dir, width=64).pack(side="left", padx=6)
@@ -120,23 +122,28 @@ class RecordPageMixin:
         self.play_log.insert("end", "等待启动…")
         self.play_log.configure(state="disabled")
 
-        ev_card = Card(page, "事件列表", "双击编辑 · Delete 删除 · Ctrl 多选")
+        ev_card = Card(page, "事件列表", "默认只读 · 点「编辑事件」后修改需保存")
         ev_card.grid(row=2, column=0, sticky="nsew")
         bar = ctk.CTkFrame(ev_card.body, fg_color="transparent")
         bar.pack(fill="x", pady=(0, 6))
-        self._btn(bar, "＋ 新增节点", self._add_node, width=104, color=theme.ACCENT,
-                  text_color="#04121f").pack(side="left")
-        self._btn(bar, "编辑", self._edit_event, width=64).pack(side="left", padx=6)
-        self._btn(bar, "删除", self._delete_events, width=64, color=theme.DANGER,
-                  text_color="white").pack(side="left")
-        self._btn(bar, "复制", self._copy_events, width=64).pack(side="left", padx=6)
-        self._btn(bar, "上移", self._move_up, width=64).pack(side="left")
-        self._btn(bar, "下移", self._move_down, width=64).pack(side="left", padx=6)
-        self._btn(bar, "保存", self._save_script, width=64, color=theme.OK,
-                  text_color="#04121f").pack(side="left")
-        self._btn(bar, "清空", self._clear_events, width=64).pack(side="right")
-        self.event_hint = label(bar, "", 9)
-        self.event_hint.pack(side="right", padx=10)
+        self.btn_edit_mode = self._btn(bar, "编辑事件", self._enter_edit, width=96,
+                                       color=theme.ACCENT, text_color="#04121f")
+        self.btn_edit_mode.pack(side="left")
+        self.edit_bar = ctk.CTkFrame(bar, fg_color="transparent")
+        self._btn(self.edit_bar, "＋ 新增节点", self._add_node, width=96,
+                  color=theme.ACCENT, text_color="#04121f").pack(side="left")
+        self._btn(self.edit_bar, "编辑", self._edit_event, width=56).pack(side="left", padx=5)
+        self._btn(self.edit_bar, "删除", self._delete_events, width=56,
+                  color=theme.DANGER, text_color="white").pack(side="left")
+        self._btn(self.edit_bar, "复制", self._copy_events, width=56).pack(side="left", padx=5)
+        self._btn(self.edit_bar, "上移", self._move_up, width=56).pack(side="left")
+        self._btn(self.edit_bar, "下移", self._move_down, width=56).pack(side="left", padx=5)
+        self._btn(self.edit_bar, "恢复更改", self._revert_edit, width=80).pack(side="left")
+        self._btn(self.edit_bar, "保存", self._save_edit, width=64, color=theme.OK,
+                  text_color="#04121f").pack(side="left", padx=5)
+        self._btn(self.edit_bar, "退出编辑", self._exit_edit, width=76).pack(side="left")
+        self.event_hint = label(ev_card.body, "点「编辑事件」后可修改节点", 9)
+        self.event_hint.pack(anchor="w", pady=(0, 4))
 
         tables = ctk.CTkFrame(ev_card.body, fg_color=theme.BG2, corner_radius=8)
         tables.pack(fill="both", expand=True, pady=(2, 0))
@@ -207,6 +214,11 @@ class RecordPageMixin:
     def _on_script_selected(self, name: str):
         if name == "（未选择）":
             return
+        if getattr(self, "_editing", False):
+            if not messagebox.askyesno("切换脚本", "事件列表正在编辑，切换脚本会丢弃未保存的修改。是否继续？"):
+                self.script_var.set(self.script_path.name if self.script_path else "（未选择）")
+                return
+            self._discard_edit()
         path = getattr(self, "_script_files", {}).get(name)
         if not path:
             return
@@ -235,6 +247,10 @@ class RecordPageMixin:
                 pass
 
     def _new_script(self):
+        if getattr(self, "_editing", False):
+            if not messagebox.askyesno("新建脚本", "事件列表正在编辑，未保存的修改将丢弃。是否继续？"):
+                return
+            self._discard_edit()
         if self.recording:
             self._stop_record()
         if self.events and not self.script_path:
@@ -248,8 +264,13 @@ class RecordPageMixin:
         self.script_var.set("（未选择）")
         self._toast("已新建空白脚本，按 F8 开始录制", "info")
 
-    def _save_script(self, silent: bool = False) -> bool:
-        if not self.events:
+    def _save_any(self) -> bool:
+        if getattr(self, "_editing", False):
+            return self._save_edit()
+        return self._save_script()
+
+    def _save_script(self, silent: bool = False, allow_empty: bool = False) -> bool:
+        if not self.events and not allow_empty:
             self._toast("没有可保存的事件", "warn")
             return False
         path = self.script_path or new_script_path()
@@ -272,12 +293,16 @@ class RecordPageMixin:
             self._rebuild_events()
 
     def _clear_events(self):
-        if not self.events:
+        if not self._require_edit():
+            return
+        evs = self._current_events()
+        if not evs:
             return
         if not messagebox.askyesno("清空", "确定清空当前脚本的全部事件？"):
             return
-        self.events = []
+        evs.clear()
         self._rebuild_events()
+        self._toast("已清空（未保存）", "warn")
 
     def _rebuild_events(self):
         try:
@@ -285,7 +310,7 @@ class RecordPageMixin:
                 self.event_tree.delete(item)
         except Exception:
             pass
-        for i, ev in enumerate(self.events):
+        for i, ev in enumerate(self._current_events()):
             self._insert_tree_row(i, ev)
         self._update_counts()
 
@@ -298,7 +323,15 @@ class RecordPageMixin:
         except Exception:
             pass
 
+    def _current_events(self) -> list[dict]:
+        if getattr(self, "_editing", False) and self._draft is not None:
+            return self._draft
+        return self.events
+
     def _add_event(self, ev: dict):
+        if getattr(self, "_editing", False):
+            self._toast("编辑中不能录制，请先保存或退出编辑", "warn")
+            return
         self.events.append(ev)
         self._insert_tree_row(len(self.events) - 1, ev)
         self._update_counts()
@@ -325,13 +358,20 @@ class RecordPageMixin:
     def _update_hint(self):
         n = len(self._selected())
         try:
-            self.event_hint.configure(text=("已选 %d 个节点" % n) if n else "双击节点即可编辑")
+            if not getattr(self, "_editing", False):
+                self.event_hint.configure(text="点「编辑事件」后可修改节点")
+            elif n:
+                self.event_hint.configure(text="编辑中 · 已选 %d 个 · 修改需点保存" % n)
+            else:
+                self.event_hint.configure(text="编辑中 · 修改需点「保存」，可点「恢复更改」撤销")
         except Exception:
             pass
 
     def _update_counts(self):
-        self.event_count_label.configure(text="%d 个事件" % len(self.events))
-        self.count_label.configure(text="事件 %d" % len(self.events))
+        n = len(self._current_events())
+        suffix = "（未保存）" if getattr(self, "_editing", False) else ""
+        self.event_count_label.configure(text="%d 个事件%s" % (n, suffix))
+        self.count_label.configure(text="事件 %d%s" % (n, suffix))
         self._update_hint()
 
     def _node_dialog(self, ev=None):
@@ -340,16 +380,84 @@ class RecordPageMixin:
         self.wait_window(dlg)
         return dlg.result
 
+    # ------------------------------------------------------------ 编辑模式
+    def _enter_edit(self):
+        if getattr(self, "_editing", False):
+            return
+        if self.recording:
+            self._stop_record()
+        self._draft = copy.deepcopy(self.events)
+        self._editing = True
+        self.btn_edit_mode.pack_forget()
+        self.edit_bar.pack(side="left", padx=(6, 0))
+        self._rebuild_events()
+        self._toast("已进入编辑模式：修改只在点「保存」后生效", "info")
+
+    def _leave_edit_ui(self):
+        try:
+            self.edit_bar.pack_forget()
+            self.btn_edit_mode.pack(side="left")
+        except Exception:
+            pass
+
+    def _require_edit(self) -> bool:
+        if not getattr(self, "_editing", False):
+            self._toast("请先点「编辑事件」再修改", "warn")
+            return False
+        return True
+
+    def _save_edit(self, silent: bool = False) -> bool:
+        if not getattr(self, "_editing", False):
+            if not silent:
+                self._toast("当前不在编辑模式", "warn")
+            return False
+        old = self.events
+        self.events = copy.deepcopy(self._draft or [])
+        if not self._save_script(silent=True, allow_empty=True):
+            self.events = old
+            return False
+        self._editing = False
+        self._draft = None
+        self._leave_edit_ui()
+        self._rebuild_events()
+        if not silent:
+            self._toast("已保存 %d 个事件" % len(self.events), "ok")
+        return True
+
+    def _revert_edit(self):
+        if not self._require_edit():
+            return
+        self._draft = copy.deepcopy(self.events)
+        self._rebuild_events()
+        self._toast("已恢复到最后一次保存的内容", "ok")
+
+    def _discard_edit(self):
+        self._editing = False
+        self._draft = None
+        self._leave_edit_ui()
+        self._rebuild_events()
+
+    def _exit_edit(self):
+        if not self._require_edit():
+            return
+        if not messagebox.askyesno("退出编辑", "未保存的修改将全部丢弃，确定退出编辑？"):
+            return
+        self._discard_edit()
+        self._toast("已退出编辑，未保存的修改已丢弃", "info")
+
     def _add_node(self):
+        if not self._require_edit():
+            return
         events = self._node_dialog(None)
         if not events:
             return
+        evs = self._current_events()
         pos = self._selected()
-        at = (pos[-1] + 1) if pos else len(self.events)
-        self.events[at:at] = events
+        at = (pos[-1] + 1) if pos else len(evs)
+        evs[at:at] = events
         self._rebuild_events()
         self._select_range(at, at + len(events) - 1)
-        self._toast("已新增 %d 个节点，记得保存" % len(events), "ok")
+        self._toast("已新增 %d 个节点（未保存）" % len(events), "ok")
 
     def _select_range(self, a: int, b: int):
         try:
@@ -361,6 +469,8 @@ class RecordPageMixin:
             pass
 
     def _edit_event(self):
+        if not self._require_edit():
+            return
         sel = self._selected()
         if not sel:
             self._toast("请先选中一个节点", "warn")
@@ -369,7 +479,8 @@ class RecordPageMixin:
             self._toast("一次只能编辑一个节点（可批量删除、复制、移动）", "warn")
             return
         i = sel[0]
-        ev = self.events[i]
+        evs = self._current_events()
+        ev = evs[i]
         typ = str(ev.get("type", "")).lower()
         if typ in ("monitor", "monitor_group"):
             self._show_page("monitor")
@@ -383,50 +494,62 @@ class RecordPageMixin:
         events = self._node_dialog(ev)
         if not events:
             return
-        self.events[i:i + 1] = events
+        evs[i:i + 1] = events
         self._rebuild_events()
         self._select_range(i, i + len(events) - 1)
-        self._toast("节点已更新，记得保存", "ok")
+        self._toast("节点已更新（未保存）", "ok")
 
     def _delete_events(self):
+        if not self._require_edit():
+            return
         sel = self._selected()
         if not sel:
             self._toast("请先选中要删除的节点", "warn")
             return
         if not messagebox.askyesno("删除节点", "确定删除选中的 %d 个节点？" % len(sel)):
             return
+        evs = self._current_events()
         for i in reversed(sel):
-            del self.events[i]
+            del evs[i]
         self._rebuild_events()
-        self._toast("已删除 %d 个节点" % len(sel), "ok")
+        self._toast("已删除 %d 个节点（未保存）" % len(sel), "ok")
 
     def _copy_events(self):
+        if not self._require_edit():
+            return
         sel = self._selected()
         if not sel:
             self._toast("请先选中要复制的节点", "warn")
             return
-        items = [copy.deepcopy(self.events[i]) for i in sel]
+        evs = self._current_events()
+        items = [copy.deepcopy(evs[i]) for i in sel]
         at = sel[-1] + 1
-        self.events[at:at] = items
+        evs[at:at] = items
         self._rebuild_events()
         self._select_range(at, at + len(items) - 1)
-        self._toast("已复制 %d 个节点" % len(items), "ok")
+        self._toast("已复制 %d 个节点（未保存）" % len(items), "ok")
 
     def _move_up(self):
+        if not self._require_edit():
+            return
         sel = self._selected()
+        evs = self._current_events()
         if not sel or sel[0] == 0:
             return
         for i in sel:
-            self.events[i - 1], self.events[i] = self.events[i], self.events[i - 1]
+            evs[i - 1], evs[i] = evs[i], evs[i - 1]
         self._rebuild_events()
         self._select_range(sel[0] - 1, sel[-1] - 1)
 
     def _move_down(self):
+        if not self._require_edit():
+            return
         sel = self._selected()
-        if not sel or sel[-1] >= len(self.events) - 1:
+        evs = self._current_events()
+        if not sel or sel[-1] >= len(evs) - 1:
             return
         for i in reversed(sel):
-            self.events[i + 1], self.events[i] = self.events[i], self.events[i + 1]
+            evs[i + 1], evs[i] = evs[i], evs[i + 1]
         self._rebuild_events()
         self._select_range(sel[0] + 1, sel[-1] + 1)
 
@@ -452,6 +575,9 @@ class RecordPageMixin:
             self._start_record()
 
     def _start_record(self):
+        if getattr(self, "_editing", False):
+            self._toast("请先保存或退出编辑，再开始录制", "warn")
+            return
         if self.player.running:
             self.player.stop()
         if self.events and self.script_path:

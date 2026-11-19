@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import threading
 import tkinter as tk
@@ -55,7 +56,7 @@ class SettingsPageMixin:
         vp = Card(page, "虚拟屏保活", "Parsec VDD · 真正多一块虚拟显示器")
         vp.grid(row=2, column=0, sticky="ew", pady=8)
         self.parsec_var = tk.BooleanVar(value=bool(self.cfg.get("vdisplay_parsec", False)))
-        ctk.CTkSwitch(vp.body, text="启用虚拟显示器（断开远控后监控区域仍然有画面）",
+        ctk.CTkSwitch(vp.body, text="启用虚拟显示器（关闭显示器后监控区域仍然有画面）",
                       variable=self.parsec_var, font=(theme.FONT, theme.fs(11)),
                       progress_color=theme.ACCENT,
                       command=self._toggle_parsec).pack(anchor="w")
@@ -110,21 +111,19 @@ class SettingsPageMixin:
     def _restart_app(self):
         try:
             self.cfg.save()
-            self.player.stop()
-            self.recorder.stop()
-            if self.hotkeys:
-                self.hotkeys.stop()
-            try:
-                from core.vdisplay import keepalive
-                if keepalive.enabled:
-                    keepalive.disable()
-            except Exception:
-                pass
-            self.destroy()
+            if getattr(self, "_editing", False):
+                if not self._save_edit(silent=True):
+                    return
+            self._shutdown_backends()
             if getattr(sys, "frozen", False):
-                os.execl(sys.executable, sys.executable)
+                args = [sys.executable]
             else:
-                os.execl(sys.executable, sys.executable, *sys.argv)
+                args = [sys.executable] + list(sys.argv)
+            flags = 0
+            if os.name == "nt":
+                flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            subprocess.Popen(args, cwd=str(ROOT), close_fds=True, creationflags=flags)
+            self.destroy()
         except Exception as exc:
             self._toast("重启失败：%s" % exc, "error")
 
