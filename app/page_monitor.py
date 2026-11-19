@@ -5,6 +5,8 @@ import copy
 import datetime
 import cv2
 import shutil
+import tempfile
+import zipfile
 import json
 import threading
 import time
@@ -223,34 +225,84 @@ class MonitorPageMixin:
         if not s:
             return
         self._update_active_scheme_memory()
-        path = filedialog.asksaveasfilename(title="导出监控方案", defaultextension=".json",
-                                            filetypes=[("JSON", "*.json")],
-                                            initialfile="%s.json" % s.get("name", "scheme"))
+        path = filedialog.asksaveasfilename(
+            title="导出监控方案", defaultextension=".zip",
+            filetypes=[("WizFlow 方案包", "*.zip"), ("JSON", "*.json")],
+            initialfile="%s.zip" % s.get("name", "scheme"))
         if not path:
             return
         try:
-            Path(path).write_text(json.dumps(s, ensure_ascii=False, indent=2), encoding="utf-8")
+            data = json.dumps(s, ensure_ascii=False, indent=2)
+            if path.lower().endswith(".zip"):
+                with tempfile.TemporaryDirectory(prefix="wizflow_scheme_") as td:
+                    root = Path(td)
+                    (root / "scheme.json").write_text(data, encoding="utf-8")
+                    icons = set()
+                    for r in (s.get("group", {}) or {}).get("rules", []):
+                        tpl = str(r.get("template", "") or "")
+                        if tpl:
+                            icons.add(Path(tpl).name)
+                    if icons:
+                        (root / "icons").mkdir(exist_ok=True)
+                        for name in icons:
+                            src = ICONS_DIR / name
+                            if src.exists():
+                                shutil.copy2(src, root / "icons" / name)
+                    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+                        for f in root.rglob("*"):
+                            if f.is_file():
+                                z.write(f, f.relative_to(root).as_posix())
+            else:
+                Path(path).write_text(data, encoding="utf-8")
             self._toast("方案已导出：%s" % Path(path).name, "ok")
         except Exception as exc:
             self._toast("导出失败：%s" % exc, "error")
 
     def _import_scheme(self):
-        path = filedialog.askopenfilename(title="导入监控方案",
-                                          filetypes=[("JSON", "*.json")])
+        path = filedialog.askopenfilename(
+            title="导入监控方案",
+            filetypes=[("WizFlow 方案包", "*.zip"), ("JSON", "*.json")])
         if not path:
             return
         try:
-            data = json.loads(Path(path).read_text(encoding="utf-8"))
+            tmpdir = None
+            if zipfile.is_zipfile(path):
+                tmpdir = tempfile.TemporaryDirectory(prefix="wizflow_import_")
+                root = Path(tmpdir.name)
+                with zipfile.ZipFile(path) as z:
+                    z.extractall(root)
+                scheme_file = root / "scheme.json"
+                if not scheme_file.exists():
+                    matches = list(root.rglob("scheme.json"))
+                    if not matches:
+                        raise ValueError("压缩包里没有 scheme.json")
+                    scheme_file = matches[0]
+                data = json.loads(scheme_file.read_text(encoding="utf-8"))
+                icon_dir = scheme_file.parent / "icons"
+                if icon_dir.exists():
+                    ICONS_DIR.mkdir(parents=True, exist_ok=True)
+                    for f in icon_dir.iterdir():
+                        if f.is_file():
+                            shutil.copy2(f, ICONS_DIR / f.name)
+            else:
+                data = json.loads(Path(path).read_text(encoding="utf-8"))
         except Exception as exc:
             self._toast("导入失败：%s" % exc, "error")
             return
+        finally:
+            try:
+                if tmpdir is not None:
+                    tmpdir.cleanup()
+            except Exception:
+                pass
         if not isinstance(data, dict) or not isinstance(data.get("profile", {}), dict):
             self._toast("文件格式不正确", "warn")
             return
         name = data.get("name") or Path(path).stem
         scheme = {"id": "scheme_" + uuid.uuid4().hex[:8], "name": name,
                   "profile": data.get("profile", {}),
-                  "group": data.get("group", {})}
+                  "group": data.get("group", {}),
+                  "_v2": True}
         self._update_active_scheme_memory()
         self.schemes.append(scheme)
         self.active_scheme_id = scheme["id"]
@@ -376,17 +428,25 @@ class MonitorPageMixin:
         tools2 = ctk.CTkFrame(rules.body, fg_color="transparent")
         tools2.pack(fill="x", pady=(0, 4))
         self.rule_filter_var = tk.StringVar(value="")
-        fe = ctk.CTkEntry(tools2, textvariable=self.rule_filter_var, width=120, height=24,
+        fe = ctk.CTkEntry(tools2, textvariable=self.rule_filter_var, width=80, height=24,
                           placeholder_text="搜索规则", fg_color=theme.CARD,
                           border_color=theme.LINE, font=(theme.FONT, theme.fs(9)))
         fe.pack(side="left")
         self.rule_filter_var.trace_add("write", lambda *_a: self._refresh_rules_list())
-        ctk.CTkButton(tools2, text="全部常驻", width=72, height=24, fg_color=theme.CARD2,
+        ctk.CTkButton(tools2, text="全常驻", width=58, height=24, fg_color=theme.CARD2,
                       hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
                       command=lambda: self._set_all_resident(True)).pack(side="left", padx=6)
-        ctk.CTkButton(tools2, text="全部取消", width=72, height=24, fg_color=theme.CARD2,
+        ctk.CTkButton(tools2, text="全取消", width=58, height=24, fg_color=theme.CARD2,
                       hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
                       command=lambda: self._set_all_resident(False)).pack(side="left")
+        self.only_resident_var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(tools2, text="常驻", variable=self.only_resident_var, width=48,
+                        font=(theme.FONT, theme.fs(9)), checkbox_width=16, checkbox_height=16,
+                        command=self._refresh_rules_list).pack(side="left", padx=(8, 0))
+        self.only_enabled_var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(tools2, text="启用", variable=self.only_enabled_var, width=48,
+                        font=(theme.FONT, theme.fs(9)), checkbox_width=16, checkbox_height=16,
+                        command=self._refresh_rules_list).pack(side="left", padx=(4, 0))
         self.rules_scroll = ctk.CTkScrollableFrame(rules.body, fg_color=theme.BG2,
                                                     corner_radius=8)
         self.rules_scroll.pack(fill="both", expand=True)
@@ -416,6 +476,13 @@ class MonitorPageMixin:
             rules = [r for r in rules
                      if flt in str(r.get("name", "")).lower()
                      or flt in str(r.get("template", "")).lower()]
+        try:
+            if self.only_resident_var.get():
+                rules = [r for r in rules if r.get("resident")]
+            if self.only_enabled_var.get():
+                rules = [r for r in rules if r.get("enabled", True)]
+        except Exception:
+            pass
         if not rules:
             ctk.CTkLabel(self.rules_scroll,
                          text="还没有监控规则\n点「新建规则」或「管理组」添加",
