@@ -370,6 +370,20 @@ class MonitorPageMixin:
         ctk.CTkButton(tools, text="导出规则", width=72, height=24, fg_color=theme.CARD2,
                       hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
                       command=self._export_rules).pack(side="left", padx=6)
+        tools2 = ctk.CTkFrame(rules.body, fg_color="transparent")
+        tools2.pack(fill="x", pady=(0, 4))
+        self.rule_filter_var = tk.StringVar(value="")
+        fe = ctk.CTkEntry(tools2, textvariable=self.rule_filter_var, width=120, height=24,
+                          placeholder_text="搜索规则", fg_color=theme.CARD,
+                          border_color=theme.LINE, font=(theme.FONT, theme.fs(9)))
+        fe.pack(side="left")
+        self.rule_filter_var.trace_add("write", lambda *_a: self._refresh_rules_list())
+        ctk.CTkButton(tools2, text="全部常驻", width=72, height=24, fg_color=theme.CARD2,
+                      hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
+                      command=lambda: self._set_all_resident(True)).pack(side="left", padx=6)
+        ctk.CTkButton(tools2, text="全部取消", width=72, height=24, fg_color=theme.CARD2,
+                      hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
+                      command=lambda: self._set_all_resident(False)).pack(side="left")
         self.rules_scroll = ctk.CTkScrollableFrame(rules.body, fg_color=theme.BG2,
                                                     corner_radius=8)
         self.rules_scroll.pack(fill="both", expand=True)
@@ -390,6 +404,15 @@ class MonitorPageMixin:
             child.destroy()
         self._rule_status_labels = {}
         rules = self._rules()
+        flt = ""
+        try:
+            flt = self.rule_filter_var.get().strip().lower()
+        except Exception:
+            pass
+        if flt:
+            rules = [r for r in rules
+                     if flt in str(r.get("name", "")).lower()
+                     or flt in str(r.get("template", "")).lower()]
         if not rules:
             ctk.CTkLabel(self.rules_scroll,
                          text="还没有监控规则\n点「新建规则」或「管理组」添加",
@@ -401,6 +424,7 @@ class MonitorPageMixin:
             rid = str(rule.get("id", ""))
             row = ctk.CTkFrame(self.rules_scroll, fg_color=theme.CARD, corner_radius=8)
             row.pack(fill="x", padx=4, pady=3)
+            row.bind("<Double-1>", lambda _e, r=rid: self._edit_rule(r))
 
             head = ctk.CTkFrame(row, fg_color="transparent")
             head.pack(fill="x", padx=8, pady=(6, 0))
@@ -517,6 +541,13 @@ class MonitorPageMixin:
         for link in g.get("links", []):
             link["members"] = [m for m in link.get("members", []) if m != rid]
         self._save_multi_group(g)
+
+    def _set_all_resident(self, value: bool):
+        g = normalize_monitor_group(self.multi_group)
+        for r in g.get("rules", []):
+            r["resident"] = bool(value)
+        self._save_multi_group(g, silent=True)
+        self._toast("已%s全部规则常驻" % ("开启" if value else "取消"), "ok")
 
     def _set_rule_flag(self, rid: str, key: str, value: bool):
         g = normalize_monitor_group(self.multi_group)

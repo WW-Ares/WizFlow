@@ -84,7 +84,7 @@ WizFlow 的定位不是替代业务系统，而是把其中**重复度最高、�
 从 [Releases](https://github.com/WW-Ares/WizFlow/releases) 下载：
 
 - `WizFlow.exe`：单文件版，首次启动约 5–15 秒。
-- `WizFlow-win64-1.6.0.zip`：文件夹版，启动更快，需保留 `_internal` 目录。
+- `WizFlow-win64-1.7.0.zip`：文件夹版，启动更快，需保留 `_internal` 目录。
 
 > 文件夹版不能只拷贝 exe，必须保留整个目录。不要运行 `build/` 下的中间产物。
 
