@@ -23,6 +23,7 @@ def main() -> int:
         "--collect-all", "customtkinter",
         "--collect-all", "cv2",
         "--collect-all", "numpy",
+        "--collect-all", "windows_capture",
         "--hidden-import", "pynput.keyboard._win32",
         "--hidden-import", "pynput.mouse._win32",
         "--hidden-import", "PIL._tkinter_finder",
@@ -51,3 +52,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

@@ -7,3 +7,5 @@ pynput>=1.7.6
 pywin32>=306
 json5>=0.9.10
 pystray>=0.19.5
+windows-capture>=2.0.1
+

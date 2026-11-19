@@ -132,6 +132,45 @@ def _selftest() -> int:
         st = vp.status()
         return "installed=%s active=%s" % (st.get("installed"), st.get("active"))
 
+    def t_capture():
+        import tkinter as tk
+        from core.capture import list_windows, make_source
+        from core.screen import TemplateMatcher, save_png
+        import numpy as np
+
+        root = tk.Tk()
+        root.title("WizFlowSelfTestCap")
+        root.geometry("600x400+140+140")
+        cv = tk.Canvas(root, bg="#101820", highlightthickness=0)
+        cv.pack(fill="both", expand=True)
+        cv.create_rectangle(40, 40, 100, 80, fill="#00ff00", outline="")
+        cv.create_rectangle(45, 45, 55, 55, fill="#ff0000", outline="")
+        try:
+            for _ in range(20):
+                root.update()
+                time.sleep(0.02)
+            wins = [w for w in list_windows() if w.title == "WizFlowSelfTestCap"]
+            assert wins, "self-test window not found"
+            w = wins[0]
+            tpl = np.zeros((40, 60, 3), np.uint8)
+            tpl[:, :] = (0, 255, 0)
+            tpl[5:15, 5:15] = (0, 0, 255)
+            tp = tmp / "cap_tpl.png"
+            save_png(tpl, tp)
+            out = []
+            for mode in ("window", "window_gdi"):
+                src = make_source({"capture_mode": mode, "window_hwnd": w.hwnd})
+                try:
+                    frame = src.grab((0, 0, min(600, w.width), min(400, w.height)))
+                    res = TemplateMatcher().find(frame, str(tp), 0.9, False)
+                    assert abs(res.center[0] - 70) <= 3 and abs(res.center[1] - 60) <= 3, res.center
+                    out.append(mode)
+                finally:
+                    src.close()
+            return "windows=%d modes=%s" % (len(list_windows()), ",".join(out))
+        finally:
+            root.destroy()
+
     check("config", t_config)
     check("script-roundtrip", t_script)
     check("script-legacy", t_legacy)
@@ -141,6 +180,7 @@ def _selftest() -> int:
     check("vdisplay", t_vdisplay)
     check("event-describe", t_describe)
     check("parsec-bundle", t_parsec)
+    check("window-capture", t_capture)
 
     text = "\n".join(lines)
     print(text)

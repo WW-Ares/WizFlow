@@ -13,6 +13,7 @@ from PIL import Image
 
 from config import ICONS_DIR, ROOT
 from . import theme
+from core.capture import CaptureError, client_rect_screen, find_window, make_source
 from core.monitor import LiveMonitor, MonitorProfile, ProbeResult, annotate, crop_match, probe
 from core.monitor_rules import group_to_event, normalize_monitor_group
 from core.screen import grab, load_image, to_ctk_image
@@ -23,10 +24,12 @@ from .rules_window import RulesWindow
 from .point_picker import PointPicker
 from .key_record_dialog import KeyRecordDialog
 from .widgets import Card, ImagePanel, entry, label
+from .window_picker import WindowPicker
 
 
-BTN_MAP = {"左键": "left", "右键": "right", "中键": "middle", "侧键X1": "x1", "侧键X2": "x2"}
-STYLE_MAP = {"单击": "single", "双击": "double", "长按": "long", "滚轮": "wheel"}
+BTN_MAP = {"左键": "left", "右键": "right", "滚轮": "middle", "侧键X1": "x1", "侧键X2": "x2"}
+STYLE_MAP = {"单击": "single", "双击": "double", "长按": "long",
+             "上滚动": "wheel_up", "下滚动": "wheel_down"}
 MODE_MAP = {"图标中心": "center", "固定位置": "fixed", "偏移跟随": "follow"}
 CLICK_STYLES = ["单击", "双击", "长按"]
 WHEEL_STYLES = ["上滚动", "下滚动"]
@@ -44,6 +47,24 @@ class MonitorPageMixin:
 
         region = Card(page, "监控区域", "框选后抓取图标")
         region.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 6))
+        caprow = ctk.CTkFrame(region.body, fg_color="transparent")
+        caprow.pack(fill="x", pady=(0, 6))
+        label(caprow, "捕获方式", 10).pack(side="left")
+        mode_map = {"屏幕": "screen", "窗口": "window", "窗口(GDI)": "window_gdi"}
+        mode_rev = {v: k for k, v in mode_map.items()}
+        self.capture_var = tk.StringVar(value=mode_rev.get(self.monitor_profile.capture_mode, "屏幕"))
+        ctk.CTkOptionMenu(caprow, variable=self.capture_var, values=list(mode_map.keys()),
+                          width=110, height=28, fg_color=theme.CARD2, button_color=theme.LINE,
+                          font=(theme.FONT, theme.fs(10)),
+                          command=lambda _v: self._on_capture_mode_change()).pack(side="left", padx=6)
+        self.window_btn = ctk.CTkButton(caprow, text="选择窗口", width=84, height=28,
+                                        fg_color=theme.CARD2, hover_color=theme.LINE,
+                                        font=(theme.FONT, theme.fs(10)),
+                                        command=self._choose_window)
+        self.window_btn.pack(side="left", padx=4)
+        self.window_label = label(caprow, "", 9, theme.TEXT, anchor="w")
+        self.window_label.pack(side="left", padx=4, fill="x", expand=True)
+
         btns = ctk.CTkFrame(region.body, fg_color="transparent")
         btns.pack(fill="x")
         self._btn(btns, "框选区域", lambda: self._pick_region(False), width=88,
@@ -58,6 +79,9 @@ class MonitorPageMixin:
         self.multi_label = label(region.body, "", 9, theme.PURPLE)
         self.multi_label.pack(anchor="w", pady=(0, 6))
         self._refresh_multi_label()
+        self._refresh_window_label()
+        self._refresh_region_label()
+        self._on_capture_mode_change(initial=True)
         self.preview_panel = ImagePanel(region.body, size=(390, 190), text="框选区域后点击刷新预览")
         self.preview_panel.pack(fill="x")
 
@@ -338,6 +362,72 @@ class MonitorPageMixin:
               9).grid(row=r, column=0, columnspan=2, sticky="w")
 
     # ------------------------------------------------------------ 区域/图标
+    def _capture_mode(self) -> str:
+        return {"屏幕": "screen", "窗口": "window", "窗口(GDI)": "window_gdi"}.get(
+            self.capture_var.get(), "screen")
+
+    def _on_capture_mode_change(self, initial=False):
+        mode = self._capture_mode()
+        old = self.monitor_profile.capture_mode
+        if mode != old and ("screen" in (mode, old)):
+            # 屏幕坐标与窗口客户区坐标不能混用，切换时清空区域
+            self.monitor_profile.region = [0, 0, 0, 0]
+            self.region_shot = None
+        self.monitor_profile.capture_mode = mode
+        try:
+            self.window_btn.configure(state="normal" if mode != "screen" else "disabled")
+        except Exception:
+            pass
+        self._refresh_window_label()
+        self._refresh_region_label()
+        if not initial:
+            self._sync_profile()
+
+    def _choose_window(self):
+        WindowPicker(self, on_pick=self._on_window_picked)
+
+    def _on_window_picked(self, w):
+        p = self.monitor_profile
+        if p.capture_mode == "screen":
+            p.capture_mode = "window"
+            self.capture_var.set("窗口")
+        p.window_title = w.title
+        p.window_class = w.class_name
+        p.window_process = w.process
+        p.window_hwnd = w.hwnd
+        p.region = [0, 0, w.width, w.height]
+        self.region_shot = None
+        self._refresh_window_label()
+        self._refresh_region_label()
+        self._sync_profile()
+        self._toast("已绑定窗口：%s" % w.title, "ok")
+        self._grab_preview()
+
+    def _refresh_window_label(self):
+        p = self.monitor_profile
+        mode = self._capture_mode()
+        if mode == "screen":
+            self.window_label.configure(text="使用整个屏幕", text_color=theme.MUTED)
+            return
+        if p.window_title or p.window_process:
+            self.window_label.configure(text="%s (%s)" % (p.window_title or "(无标题)",
+                                                          p.window_process or "未知进程"),
+                                        text_color=theme.TEXT)
+        else:
+            self.window_label.configure(text="未选择窗口", text_color=theme.WARN)
+
+    def _refresh_region_label(self):
+        r = self.monitor_profile.region
+        if len(r) == 4 and r[2] > 0 and r[3] > 0:
+            prefix = "窗口内" if self._capture_mode() != "screen" else "区域"
+            self.region_label.configure(text="%s：X=%d  Y=%d  宽=%d  高=%d"
+                                        % (prefix, r[0], r[1], r[2], r[3]))
+        else:
+            self.region_label.configure(text="区域：未选择")
+
+    def _new_source(self):
+        return make_source(self.monitor_profile.to_dict())
+
     def _pick_region(self, capture: bool = False):
         def restore():
             try:
@@ -349,11 +439,40 @@ class MonitorPageMixin:
             except Exception:
                 pass
 
+        mode = self._capture_mode()
+        origin = (0, 0)
+        client = None
+        if mode != "screen":
+            hwnd = find_window(int(self.monitor_profile.window_hwnd or 0),
+                               self.monitor_profile.window_title,
+                               self.monitor_profile.window_class,
+                               self.monitor_profile.window_process)
+            if not hwnd:
+                self._toast("请先选择窗口", "warn")
+                return
+            client = client_rect_screen(hwnd)
+            if client is None:
+                self._toast("窗口客户区无效", "warn")
+                return
+            origin = (client[0], client[1])
+        r = self.monitor_profile.region
+        initial = None
+        if len(r) == 4 and r[2] > 0 and r[3] > 0:
+            initial = [origin[0] + r[0], origin[1] + r[1], r[2], r[3]]
+
         def done(rect, do_capture=False):
             restore()
-            self.monitor_profile.region = [int(v) for v in rect]
-            self.region_label.configure(text="区域：X=%d  Y=%d  宽=%d  高=%d"
-                                        % (rect[0], rect[1], rect[2], rect[3]))
+            if mode != "screen" and client:
+                rel = [int(rect[0]) - origin[0], int(rect[1]) - origin[1],
+                       int(rect[2]), int(rect[3])]
+                rel[0] = max(0, min(rel[0], client[2] - 1))
+                rel[1] = max(0, min(rel[1], client[3] - 1))
+                rel[2] = max(1, min(rel[2], client[2] - rel[0]))
+                rel[3] = max(1, min(rel[3], client[3] - rel[1]))
+                self.monitor_profile.region = rel
+            else:
+                self.monitor_profile.region = [int(v) for v in rect]
+            self._refresh_region_label()
             self._sync_profile()
             self._grab_preview()
             if do_capture:
@@ -362,12 +481,11 @@ class MonitorPageMixin:
         def cancelled():
             restore()
 
-        # 先把主窗口最小化，把屏幕让出来，再创建全屏遮罩
         try:
             self.iconify()
         except Exception:
             pass
-        self.after(160, lambda: RegionPicker(self, rect=self.monitor_profile.region,
+        self.after(160, lambda: RegionPicker(self, rect=initial,
                                              on_confirm=done, on_cancel=cancelled))
 
     def _refresh_multi_label(self):
@@ -424,11 +542,13 @@ class MonitorPageMixin:
         if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
             self._toast("请先框选监控区域", "warn")
             return
+        source = None
         try:
-            frame = grab(region)
+            source = self._new_source()
+            frame = source.grab(region)
             self.region_shot = frame.copy()
             if self.monitor_profile.template:
-                pr = probe(self.matcher, self.monitor_profile)
+                pr = probe(self.matcher, self.monitor_profile, source)
                 frame = annotate(frame, self.monitor_profile, pr)
                 self.live_score_label.configure(text="%.3f" % pr.score,
                                                 text_color=theme.OK if pr.matched else theme.MUTED)
@@ -436,6 +556,9 @@ class MonitorPageMixin:
             self._toast("预览已刷新", "ok")
         except Exception as exc:
             self._toast("预览失败: %s" % exc, "error")
+        finally:
+            if source is not None:
+                source.close()
 
     def _capture_icon(self):
         region = self.monitor_profile.region
@@ -443,11 +566,16 @@ class MonitorPageMixin:
             self._toast("请先框选监控区域", "warn")
             return
         if self.region_shot is None:
+            source = None
             try:
-                self.region_shot = grab(region)
+                source = self._new_source()
+                self.region_shot = source.grab(region)
             except Exception as exc:
                 self._toast("抓取区域截图失败: %s" % exc, "error")
                 return
+            finally:
+                if source is not None:
+                    source.close()
         name = self.icon_name_var.get().strip()
         if not name:
             name = "icon_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -663,6 +791,7 @@ class MonitorPageMixin:
     def _sync_profile(self):
         try:
             self.monitor_profile.name = self.mon_name_var.get().strip() or "监控1"
+            self.monitor_profile.capture_mode = self._capture_mode()
             self.monitor_profile.poll_ms = max(20, int(float(self.poll_var.get())))
             self.monitor_profile.timeout_ms = max(0, int(float(self.timeout_var.get())))
             self.monitor_profile.multiscale = bool(self.multiscale_var.get())

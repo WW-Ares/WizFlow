@@ -17,6 +17,7 @@ WizFlow 以 **GPL-2.0** 发布。以下是运行时/构建依赖的许可证信�
 | Python | 运行时 | PSF |
 | Parsec VDD (parsec-vdd) | 虚拟显示器驱动（`assets/vdd/driver`） | MIT |
 | nefcon (nefconw.exe) | 驱动/设备节点安装工具 | MIT |
+| windows-capture | WGC 窗口抓屏（Rust 扩展） | MIT |
 
 ## pynput / pystray / LGPL-3.0
 

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .actions import ActionContext, execute_actions
 from .log import log
+from .capture import make_source
 from .screen import MatchResult, TemplateMatcher, grab
 
 DEFAULTS_RULE = {
@@ -38,6 +39,10 @@ DEFAULTS_GROUP = {
     "timeout_ms": 0,
     "stop_on_match": False,
     "capture_mode": "screen",
+    "window_title": "",
+    "window_class": "",
+    "window_process": "",
+    "window_hwnd": 0,
     "rules": [],
     "links": [],
 }
@@ -106,6 +111,10 @@ def normalize_monitor_group(d: dict) -> dict:
     out["timeout_ms"] = max(0, _i(d.get("timeout_ms", 0), 0))
     out["stop_on_match"] = bool(d.get("stop_on_match", False))
     out["capture_mode"] = str(d.get("capture_mode", "screen"))
+    out["window_title"] = str(d.get("window_title", "") or "")
+    out["window_class"] = str(d.get("window_class", "") or "")
+    out["window_process"] = str(d.get("window_process", "") or "")
+    out["window_hwnd"] = _i(d.get("window_hwnd", 0), 0)
     rules = []
     seen = set()
     for i, r in enumerate(d.get("rules") or []):
@@ -142,7 +151,8 @@ def _abs_roi(region, roi):
     return x, y, w, h
 
 
-def match_rule(matcher: TemplateMatcher, frame, region, rule) -> MatchResult:
+def match_rule(matcher: TemplateMatcher, frame, region, rule, origin=(0, 0)) -> MatchResult:
+    ox, oy = int(origin[0]), int(origin[1])
     if not rule.get("template"):
         return MatchResult()
     x, y, w, h = [int(v) for v in region]
@@ -154,12 +164,12 @@ def match_rule(matcher: TemplateMatcher, frame, region, rule) -> MatchResult:
         rh = min(int(roi[3]), max(1, frame.shape[0] - ry))
         sub = frame[ry:ry + rh, rx:rx + rw]
         res = matcher.find(sub, rule["template"], rule["threshold"], rule["multiscale"])
-        res.x += x + rx
-        res.y += y + ry
+        res.x += x + rx + ox
+        res.y += y + ry + oy
         return res
     res = matcher.find(frame, rule["template"], rule["threshold"], rule["multiscale"])
-    res.x += x
-    res.y += y
+    res.x += x + ox
+    res.y += y + oy
     return res
 
 
@@ -179,6 +189,26 @@ class MonitorEngine:
     def run(self, group: dict, player, script_dir: Path, stop_event, pause_event,
             on_status) -> str:
         group = normalize_monitor_group(group)
+        try:
+            source = make_source(group)
+        except Exception as exc:
+            on_status("抓屏源不可用: %s" % exc, None)
+            return "capture_error"
+        try:
+            return self._run_inner(group, player, script_dir, stop_event, pause_event,
+                                   on_status, source)
+        finally:
+            source.close()
+
+    def _run_inner(self, group: dict, player, script_dir: Path, stop_event, pause_event,
+                   on_status, source) -> str:
+        group = normalize_monitor_group(group)
+        is_screen = getattr(source, "mode", "screen") == "screen"
+        origin = (0, 0) if is_screen else source.origin
+
+        def _grab_frame(rect):
+            return grab(rect) if is_screen else source.grab(rect)
+
         region = [int(v) for v in group["region"]]
         if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
             on_status("监控组区域无效", None)
@@ -200,7 +230,7 @@ class MonitorEngine:
                 time.sleep(0.05)
                 continue
             try:
-                frame = grab(region)
+                frame = _grab_frame(region)
             except Exception as exc:
                 on_status("监控抓屏失败: %s" % exc, None)
                 time.sleep(0.5)
@@ -212,7 +242,7 @@ class MonitorEngine:
                     results[rule["id"]] = MatchResult()
                     continue
                 try:
-                    res = match_rule(self.matcher, frame, region, rule)
+                    res = match_rule(self.matcher, frame, region, rule, origin)
                 except Exception as exc:
                     log("规则匹配失败 %s: %s" % (rule["name"], exc), "WARN")
                     res = MatchResult()
@@ -326,10 +356,10 @@ class MonitorEngine:
                     break
                 if any(r.get("recheck", True) for r in cand["rules"]):
                     try:
-                        f2 = grab(region)
+                        f2 = _grab_frame(region)
                         ok_all = True
                         for r in cand["rules"]:
-                            fr = match_rule(self.matcher, f2, region, r)
+                            fr = match_rule(self.matcher, f2, region, r, origin)
                             if fr.score < r["threshold"]:
                                 ok_all = False
                                 break
@@ -338,14 +368,14 @@ class MonitorEngine:
                             continue
                         new_exec = []
                         for (act, _m, _n), r in zip(cand["executions"], cand["rules"]):
-                            new_exec.append((act, match_rule(self.matcher, f2, region, r), r["name"]))
+                            new_exec.append((act, match_rule(self.matcher, f2, region, r, origin), r["name"]))
                         cand["executions"] = new_exec
                     except Exception:
                         pass
                 for actions, match, rule_name in cand["executions"]:
                     if stop_event.is_set():
                         break
-                    ctx = ActionContext(rule_name, match, tuple(region), frame, script_dir,
+                    ctx = ActionContext(rule_name, match, (int(origin[0]) + region[0], int(origin[1]) + region[1], region[2], region[3]), frame, script_dir,
                                         cand["rules"][0])
                     r = execute_actions(player, actions, ctx)
                     if r == "stopped":

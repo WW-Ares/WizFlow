@@ -11,7 +11,7 @@ from pathlib import Path
 
 APP_NAME = "WizFlow"
 APP_ID = "WizFlow.Desktop"
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.2.0"
 
 
 def app_dir() -> Path:
@@ -55,6 +55,11 @@ DEFAULTS = {
     "multi_monitor": {
         "name": "多图标监控",
         "region": [0, 0, 0, 0],
+        "capture_mode": "screen",
+        "window_title": "",
+        "window_class": "",
+        "window_process": "",
+        "window_hwnd": 0,
         "poll_ms": 150,
         "match_mode": "any",
         "max_actions_per_tick": 1,
@@ -67,6 +72,11 @@ DEFAULTS = {
     "monitor": {
         "name": "监控1",
         "region": [0, 0, 0, 0],
+        "capture_mode": "screen",
+        "window_title": "",
+        "window_class": "",
+        "window_process": "",
+        "window_hwnd": 0,
         "template": "",
         "threshold": 0.85,
         "poll_ms": 150,

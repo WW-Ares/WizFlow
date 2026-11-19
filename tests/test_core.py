@@ -396,6 +396,45 @@ def test_monitor_profile_wheel_roundtrip():
     assert p2.click_button == "middle" and p2.click_style == "single", p2
     return "profile wheel roundtrip/migration ok"
 
+
+
+def test_window_capture():
+    import tkinter as tk
+    from core.capture import list_windows, make_source
+    root = tk.Tk()
+    root.title("WizFlowCaptureTest")
+    root.geometry("600x400+120+120")
+    cv = tk.Canvas(root, bg="#101820", highlightthickness=0)
+    cv.pack(fill="both", expand=True)
+    cv.create_rectangle(40, 40, 100, 80, fill="#00ff00", outline="")
+    cv.create_rectangle(45, 45, 55, 55, fill="#ff0000", outline="")
+    try:
+        for _ in range(20):
+            root.update(); time.sleep(0.02)
+        wins = [w for w in list_windows() if w.title == "WizFlowCaptureTest"]
+        assert wins, "window not found"
+        w = wins[0]
+        tmp = Path(tempfile.mkdtemp(prefix="kmg_cap_"))
+        tpl = np.zeros((40, 60, 3), np.uint8)
+        tpl[:, :] = (0, 255, 0)
+        tpl[5:15, 5:15] = (0, 0, 255)
+        tplp = tmp / "tpl.png"
+        save_png(tpl, tplp)
+        results = {}
+        for mode in ("window", "window_gdi"):
+            src = make_source({"capture_mode": mode, "window_hwnd": w.hwnd})
+            try:
+                frame = src.grab((0, 0, min(600, w.width), min(400, w.height)))
+                res = TemplateMatcher().find(frame, str(tplp), 0.9, False)
+                results[mode] = res.center
+            finally:
+                src.close()
+        for mode, center in results.items():
+            assert abs(center[0] - 70) <= 3 and abs(center[1] - 60) <= 3, (mode, center)
+        return "wgc/gdi center=%s" % results
+    finally:
+        root.destroy()
+
 def main():
     tests = [test_monitor_hit_and_anchor, test_monitor_timeout, test_monitor_click_modes,
              test_monitor_key_action, test_hotkey_parse,
@@ -404,7 +443,7 @@ def main():
              test_preview_conversion,
              test_event_describe, test_wait_and_script_node, test_parsec_bundle,
              test_wheel_action, test_wheel_multi_action, test_keygrab_names,
-             test_monitor_profile_wheel_roundtrip]
+             test_monitor_profile_wheel_roundtrip, test_window_capture]
     failed = 0
     for fn in tests:
         try:

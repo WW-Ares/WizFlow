@@ -8,6 +8,7 @@ from typing import Callable
 
 import cv2
 
+from .capture import CaptureError, make_source
 from .log import log
 from .screen import MatchResult, TemplateMatcher, grab
 
@@ -16,6 +17,11 @@ from .screen import MatchResult, TemplateMatcher, grab
 class MonitorProfile:
     name: str = "监控1"
     region: list = field(default_factory=lambda: [0, 0, 0, 0])
+    capture_mode: str = "screen"
+    window_title: str = ""
+    window_class: str = ""
+    window_process: str = ""
+    window_hwnd: int = 0
     template: str = ""
     threshold: float = 0.85
     poll_ms: int = 150
@@ -55,6 +61,11 @@ class MonitorProfile:
         return cls(
             name=str(d.get("name", "监控1")),
             region=[int(v) for v in (d.get("region") or [0, 0, 0, 0])][:4],
+            capture_mode=str(d.get("capture_mode", "screen")),
+            window_title=str(d.get("window_title", "") or ""),
+            window_class=str(d.get("window_class", "") or ""),
+            window_process=str(d.get("window_process", "") or ""),
+            window_hwnd=int(d.get("window_hwnd", 0) or 0),
             template=str(d.get("template", "") or ""),
             threshold=float(d.get("threshold", 0.85)),
             poll_ms=max(20, int(d.get("poll_ms", 150))),
@@ -84,6 +95,9 @@ class MonitorProfile:
     def to_dict(self) -> dict:
         return {
             "name": self.name, "region": list(self.region), "template": self.template,
+            "capture_mode": self.capture_mode, "window_title": self.window_title,
+            "window_class": self.window_class, "window_process": self.window_process,
+            "window_hwnd": self.window_hwnd,
             "threshold": self.threshold, "poll_ms": self.poll_ms,
             "timeout_ms": self.timeout_ms, "multiscale": self.multiscale,
             "hit_action": self.hit_action, "key_combo": self.key_combo,
@@ -119,6 +133,7 @@ class ProbeResult:
     rect: tuple[int, int, int, int] = (0, 0, 0, 0)
     frame: object = None
     cost_ms: float = 0.0
+    origin: tuple = (0, 0)
 
     @property
     def center(self) -> tuple[int, int]:
@@ -126,22 +141,31 @@ class ProbeResult:
         return x + w // 2, y + h // 2
 
 
-def probe(matcher: TemplateMatcher, profile: MonitorProfile) -> ProbeResult:
+def probe(matcher: TemplateMatcher, profile: MonitorProfile, source=None) -> ProbeResult:
     ok, _err = profile.valid()
     if not ok:
         return ProbeResult()
-    t0 = time.perf_counter()
-    frame = grab(profile.region)
-    res = matcher.find(frame, profile.template, profile.threshold, profile.multiscale)
-    res.x += int(profile.region[0])
-    res.y += int(profile.region[1])
-    return ProbeResult(
-        score=res.score,
-        matched=res.score >= profile.threshold,
-        rect=res.rect,
-        frame=frame,
-        cost_ms=(time.perf_counter() - t0) * 1000.0,
-    )
+    own = source is None
+    if own:
+        source = make_source(profile.to_dict())
+    try:
+        t0 = time.perf_counter()
+        origin = source.origin
+        frame = source.grab(profile.region)
+        res = matcher.find(frame, profile.template, profile.threshold, profile.multiscale)
+        res.x += int(origin[0]) + int(profile.region[0])
+        res.y += int(origin[1]) + int(profile.region[1])
+        return ProbeResult(
+            score=res.score,
+            matched=res.score >= profile.threshold,
+            rect=res.rect,
+            frame=frame,
+            cost_ms=(time.perf_counter() - t0) * 1000.0,
+            origin=origin,
+        )
+    finally:
+        if own:
+            source.close()
 
 
 def crop_match(pr: ProbeResult, profile: MonitorProfile):
@@ -149,8 +173,8 @@ def crop_match(pr: ProbeResult, profile: MonitorProfile):
     if pr.frame is None:
         return None
     x, y, w, h = pr.rect
-    rx = x - int(profile.region[0])
-    ry = y - int(profile.region[1])
+    rx = x - int(pr.origin[0]) - int(profile.region[0])
+    ry = y - int(pr.origin[1]) - int(profile.region[1])
     hh, ww = pr.frame.shape[:2]
     x0, y0 = max(0, rx), max(0, ry)
     x1, y1 = min(ww, rx + w), min(hh, ry + h)
@@ -172,13 +196,26 @@ class LiveMonitor(threading.Thread):
         self._stop = stop_event or threading.Event()
 
     def run(self) -> None:
-        while not self._stop.is_set():
-            try:
-                pr = probe(self.matcher, self.profile)
-                self.callback(pr)
-            except Exception as exc:
-                log("实时监控异常: %s" % exc, "WARN")
-            self._stop.wait(max(0.02, self.profile.poll_ms / 1000.0))
+        source = None
+        try:
+            while not self._stop.is_set():
+                try:
+                    if source is None:
+                        source = make_source(self.profile.to_dict())
+                    pr = probe(self.matcher, self.profile, source)
+                    self.callback(pr)
+                except Exception as exc:
+                    log("实时监控异常: %s" % exc, "WARN")
+                    try:
+                        if source is not None:
+                            source.close()
+                    except Exception:
+                        pass
+                    source = None
+                self._stop.wait(max(0.02, self.profile.poll_ms / 1000.0))
+        finally:
+            if source is not None:
+                source.close()
 
     def stop(self) -> None:
         self._stop.set()
@@ -190,8 +227,8 @@ def annotate(frame, profile: MonitorProfile, pr: ProbeResult):
         return None
     img = frame.copy()
     x, y, w, h = pr.rect
-    rx = x - int(profile.region[0])
-    ry = y - int(profile.region[1])
+    rx = x - int(pr.origin[0]) - int(profile.region[0])
+    ry = y - int(pr.origin[1]) - int(profile.region[1])
     color = (80, 220, 80) if pr.matched else (60, 180, 250)
     cv2.rectangle(img, (rx, ry), (rx + w, ry + h), color, 2)
     cv2.putText(img, "%.3f" % pr.score, (max(2, rx), max(16, ry - 6)),

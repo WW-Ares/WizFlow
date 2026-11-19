@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 from config import ROOT
+from .capture import CaptureError, make_source
 from .hotkeys import parse_hotkey
 from .log import log
 from .monitor_rules import MonitorEngine
@@ -254,175 +255,185 @@ class Player:
         return str(ROOT / p)
 
     def _exec_monitor(self, ev: dict) -> bool:
-        region = ev.get("region") or [0, 0, 0, 0]
-        if len(region) != 4 or int(region[2]) <= 0 or int(region[3]) <= 0:
-            self.on_status("监控事件区域无效: %s" % (region,), None)
-            return True
-        tpl = self._resolve_template(str(ev.get("template", "")))
-        name = str(ev.get("name", "监控"))
-        threshold = float(ev.get("threshold", 0.85))
-        poll_ms = int(ev.get("poll_ms", 150))
-        timeout_ms = int(ev.get("timeout_ms", 8000))
-        self.on_status("监控等待: %s  (%.2f 阈值)" % (name, threshold), self._progress)
-        matched = False
-        best_score = 0.0
-        frame = None
-        res = MatchResult()
-        remaining_ms = None if timeout_ms <= 0 else float(timeout_ms)
-        multiscale = bool(ev.get("multiscale", True))
-        rgn = [int(v) for v in region]
-        while not self._stop.is_set():
-            if self._paused.is_set():
-                time.sleep(0.05)
-                continue
-            t0 = time.perf_counter()
-            frame = grab(rgn)
-            res = self.matcher.find(frame, tpl, threshold, multiscale)
-            res.x += rgn[0]
-            res.y += rgn[1]
-            best_score = max(best_score, res.score)
-            if res.score >= threshold:
-                matched = True
-                break
-            cost_ms = (time.perf_counter() - t0) * 1000.0
-            if remaining_ms is not None:
-                remaining_ms -= cost_ms
-                if remaining_ms <= 0:
+        source = None
+        try:
+            source = make_source(ev)
+            origin = source.origin
+            region = ev.get("region") or [0, 0, 0, 0]
+            if len(region) != 4 or int(region[2]) <= 0 or int(region[3]) <= 0:
+                self.on_status("监控事件区域无效: %s" % (region,), None)
+                return True
+            tpl = self._resolve_template(str(ev.get("template", "")))
+            name = str(ev.get("name", "监控"))
+            threshold = float(ev.get("threshold", 0.85))
+            poll_ms = int(ev.get("poll_ms", 150))
+            timeout_ms = int(ev.get("timeout_ms", 8000))
+            self.on_status("监控等待: %s  (%.2f 阈值)" % (name, threshold), self._progress)
+            matched = False
+            best_score = 0.0
+            frame = None
+            res = MatchResult()
+            remaining_ms = None if timeout_ms <= 0 else float(timeout_ms)
+            multiscale = bool(ev.get("multiscale", True))
+            rgn = [int(v) for v in region]
+            while not self._stop.is_set():
+                if self._paused.is_set():
+                    time.sleep(0.05)
+                    continue
+                t0 = time.perf_counter()
+                frame = source.grab(rgn)
+                res = self.matcher.find(frame, tpl, threshold, multiscale)
+                res.x += int(origin[0]) + rgn[0]
+                res.y += int(origin[1]) + rgn[1]
+                best_score = max(best_score, res.score)
+                if res.score >= threshold:
+                    matched = True
                     break
-            if not self._wait(poll_ms):
-                break
-        if self._stop.is_set():
-            return False
-        if matched:
-            cx, cy = res.center
-            ox = int(ev.get("offset_x", 0))
-            oy = int(ev.get("offset_y", 0))
-            tx, ty = cx + ox, cy + oy
-            if "hit_action" in ev:
-                hit_action = str(ev.get("hit_action", "mouse"))
-            else:
-                hit_action = "mouse" if bool(ev.get("click_sync", True)) else "script"
-            if hit_action == "mouse":
-                mode = str(ev.get("click_mode", "follow"))
-                if "hit_action" not in ev:
-                    mode = "follow"
-                if mode == "fixed":
-                    tx = int(ev.get("fixed_x", 0))
-                    ty = int(ev.get("fixed_y", 0))
-                elif mode == "follow":
-                    tx = cx + ox
-                    ty = cy + oy
+                cost_ms = (time.perf_counter() - t0) * 1000.0
+                if remaining_ms is not None:
+                    remaining_ms -= cost_ms
+                    if remaining_ms <= 0:
+                        break
+                if not self._wait(poll_ms):
+                    break
+            if self._stop.is_set():
+                return False
+            if matched:
+                cx, cy = res.center
+                ox = int(ev.get("offset_x", 0))
+                oy = int(ev.get("offset_y", 0))
+                tx, ty = cx + ox, cy + oy
+                if "hit_action" in ev:
+                    hit_action = str(ev.get("hit_action", "mouse"))
                 else:
-                    tx, ty = cx, cy
-                rx = abs(int(ev.get("random_x", 0)))
-                ry = abs(int(ev.get("random_y", 0)))
-                if rx:
-                    tx += random.randint(-rx, rx)
-                if ry:
-                    ty += random.randint(-ry, ry)
-                button = str(ev.get("click_button", "left"))
-                style = str(ev.get("click_style", "single"))
-                hold = max(1, int(ev.get("hold_ms", 40)))
-                if style in ("wheel", "wheel_up", "wheel_down"):
-                    if style == "wheel_up":
-                        direction = "up"
-                    elif style == "wheel_down":
-                        direction = "down"
+                    hit_action = "mouse" if bool(ev.get("click_sync", True)) else "script"
+                if hit_action == "mouse":
+                    mode = str(ev.get("click_mode", "follow"))
+                    if "hit_action" not in ev:
+                        mode = "follow"
+                    if mode == "fixed":
+                        tx = int(ev.get("fixed_x", 0))
+                        ty = int(ev.get("fixed_y", 0))
+                    elif mode == "follow":
+                        tx = cx + ox
+                        ty = cy + oy
                     else:
-                        direction = str(ev.get("wheel_dir", "up")).lower()
-                    amount = max(1, int(ev.get("wheel_amount", 3)))
-                    interval = max(0, int(ev.get("wheel_interval_ms", 60)))
-                    delta = 120 if direction == "up" else -120
-                    self.on_status("监控命中: %s  score=%.3f  滚轮%s %d格 @(%d,%d)"
-                                   % (name, res.score, "上" if direction == "up" else "下",
-                                      amount, tx, ty), self._progress)
-                    log("monitor hit name=%s score=%.3f action=wheel dir=%s amount=%d at=%d,%d"
-                        % (name, res.score, direction, amount, tx, ty))
-                    if self.dry_run:
-                        self._move((tx, ty))
-                    else:
-                        set_cursor_pos(tx, ty)
-                    for _i in range(amount):
-                        if self._stop.is_set():
-                            return False
-                        if self._paused.is_set():
-                            while self._paused.is_set() and not self._stop.is_set():
-                                time.sleep(0.05)
+                        tx, ty = cx, cy
+                    rx = abs(int(ev.get("random_x", 0)))
+                    ry = abs(int(ev.get("random_y", 0)))
+                    if rx:
+                        tx += random.randint(-rx, rx)
+                    if ry:
+                        ty += random.randint(-ry, ry)
+                    button = str(ev.get("click_button", "left"))
+                    style = str(ev.get("click_style", "single"))
+                    hold = max(1, int(ev.get("hold_ms", 40)))
+                    if style in ("wheel", "wheel_up", "wheel_down"):
+                        if style == "wheel_up":
+                            direction = "up"
+                        elif style == "wheel_down":
+                            direction = "down"
+                        else:
+                            direction = str(ev.get("wheel_dir", "up")).lower()
+                        amount = max(1, int(ev.get("wheel_amount", 3)))
+                        interval = max(0, int(ev.get("wheel_interval_ms", 60)))
+                        delta = 120 if direction == "up" else -120
+                        self.on_status("监控命中: %s  score=%.3f  滚轮%s %d格 @(%d,%d)"
+                                       % (name, res.score, "上" if direction == "up" else "下",
+                                          amount, tx, ty), self._progress)
+                        log("monitor hit name=%s score=%.3f action=wheel dir=%s amount=%d at=%d,%d"
+                            % (name, res.score, direction, amount, tx, ty))
+                        if self.dry_run:
+                            self._move((tx, ty))
+                        else:
+                            set_cursor_pos(tx, ty)
+                        for _i in range(amount):
                             if self._stop.is_set():
                                 return False
-                        if not self.dry_run:
-                            mouse_wheel(delta)
-                        if interval and not self._wait(interval):
-                            return False
-                else:
-                    self.on_status("监控命中: %s  score=%.3f  %s  @(%d,%d)"
-                                   % (name, res.score, style, tx, ty), self._progress)
-                    log("monitor hit name=%s score=%.3f action=%s at=%d,%d"
-                        % (name, res.score, style, tx, ty))
-                    if self.dry_run:
-                        self._move((tx, ty))
+                            if self._paused.is_set():
+                                while self._paused.is_set() and not self._stop.is_set():
+                                    time.sleep(0.05)
+                                if self._stop.is_set():
+                                    return False
+                            if not self.dry_run:
+                                mouse_wheel(delta)
+                            if interval and not self._wait(interval):
+                                return False
                     else:
-                        set_cursor_pos(tx, ty)
-                        if style == "double":
-                            for i in range(2):
+                        self.on_status("监控命中: %s  score=%.3f  %s  @(%d,%d)"
+                                       % (name, res.score, style, tx, ty), self._progress)
+                        log("monitor hit name=%s score=%.3f action=%s at=%d,%d"
+                            % (name, res.score, style, tx, ty))
+                        if self.dry_run:
+                            self._move((tx, ty))
+                        else:
+                            set_cursor_pos(tx, ty)
+                            if style == "double":
+                                for i in range(2):
+                                    mouse_down(button)
+                                    time.sleep(max(1, hold) / 1000.0)
+                                    mouse_up(button)
+                                    if i == 0:
+                                        time.sleep(0.07)
+                            elif style == "long":
+                                mouse_down(button)
+                                time.sleep(max(1000, hold) / 1000.0)
+                                mouse_up(button)
+                            else:
                                 mouse_down(button)
                                 time.sleep(max(1, hold) / 1000.0)
                                 mouse_up(button)
-                                if i == 0:
-                                    time.sleep(0.07)
-                        elif style == "long":
-                            mouse_down(button)
-                            time.sleep(max(1000, hold) / 1000.0)
-                            mouse_up(button)
-                        else:
-                            mouse_down(button)
-                            time.sleep(max(1, hold) / 1000.0)
-                            mouse_up(button)
-            elif hit_action == "key":
-                combo = str(ev.get("key_combo", "") or "")
-                hold = max(1, int(ev.get("key_hold_ms", 40)))
-                self.on_status("监控命中: %s  score=%.3f  按键 %s"
-                               % (name, res.score, combo), self._progress)
-                log("monitor hit name=%s score=%.3f action=key combo=%s"
-                    % (name, res.score, combo))
-                if not self._press_key_combo(combo, hold):
-                    return False
-            else:
-                self.on_status("监控命中: %s  score=%.3f  执行脚本" % (name, res.score),
-                               self._progress)
-                log("monitor hit name=%s score=%.3f action=script" % (name, res.score))
-            nested = ev.get("on_match") or []
-            if nested:
-                if not self._exec_events(nested, (cx, cy)):
-                    return False
-            run_script = str(ev.get("run_script", "") or "")
-            if run_script and (hit_action == "script" or "hit_action" not in ev):
-                sp = self._resolve_path(run_script)
-                if sp is None:
-                    self.on_status("同步脚本不存在: %s" % run_script, self._progress)
+                elif hit_action == "key":
+                    combo = str(ev.get("key_combo", "") or "")
+                    hold = max(1, int(ev.get("key_hold_ms", 40)))
+                    self.on_status("监控命中: %s  score=%.3f  按键 %s"
+                                   % (name, res.score, combo), self._progress)
+                    log("monitor hit name=%s score=%.3f action=key combo=%s"
+                        % (name, res.score, combo))
+                    if not self._press_key_combo(combo, hold):
+                        return False
                 else:
-                    try:
-                        doc = ScriptDoc.load(sp)
-                        anchor = ev.get("script_anchor") or []
-                        if len(anchor) == 2:
-                            dx, dy = cx - int(anchor[0]), cy - int(anchor[1])
-                            events = self._shift_events(doc.events, dx, dy)
-                            self.on_status("运行同步脚本: %s  偏移(%d,%d)" % (sp.name, dx, dy),
-                                           self._progress)
-                        else:
-                            events = doc.events
-                            self.on_status("运行脚本: %s" % sp.name, self._progress)
-                        if not self._exec_events(events, (cx, cy)):
-                            return False
-                    except Exception as exc:
-                        self.on_status("同步脚本执行失败: %s" % exc, None)
-        else:
-            self.on_status("监控超时: %s  best=%.3f" % (name, best_score), self._progress)
-            nested = ev.get("on_timeout") or []
-            if nested:
-                if not self._exec_events(nested, None):
-                    return False
-        return True
+                    self.on_status("监控命中: %s  score=%.3f  执行脚本" % (name, res.score),
+                                   self._progress)
+                    log("monitor hit name=%s score=%.3f action=script" % (name, res.score))
+                nested = ev.get("on_match") or []
+                if nested:
+                    if not self._exec_events(nested, (cx, cy)):
+                        return False
+                run_script = str(ev.get("run_script", "") or "")
+                if run_script and (hit_action == "script" or "hit_action" not in ev):
+                    sp = self._resolve_path(run_script)
+                    if sp is None:
+                        self.on_status("同步脚本不存在: %s" % run_script, self._progress)
+                    else:
+                        try:
+                            doc = ScriptDoc.load(sp)
+                            anchor = ev.get("script_anchor") or []
+                            if len(anchor) == 2:
+                                dx, dy = cx - int(anchor[0]), cy - int(anchor[1])
+                                events = self._shift_events(doc.events, dx, dy)
+                                self.on_status("运行同步脚本: %s  偏移(%d,%d)" % (sp.name, dx, dy),
+                                               self._progress)
+                            else:
+                                events = doc.events
+                                self.on_status("运行脚本: %s" % sp.name, self._progress)
+                            if not self._exec_events(events, (cx, cy)):
+                                return False
+                        except Exception as exc:
+                            self.on_status("同步脚本执行失败: %s" % exc, None)
+            else:
+                self.on_status("监控超时: %s  best=%.3f" % (name, best_score), self._progress)
+                nested = ev.get("on_timeout") or []
+                if nested:
+                    if not self._exec_events(nested, None):
+                        return False
+            return True
+        except CaptureError as exc:
+            self.on_status("抓屏源不可用: %s" % exc, None)
+            return True
+        finally:
+            if source is not None:
+                source.close()
 
     def _press_key_combo(self, combo: str, hold_ms: int = 40) -> bool:
         combo = (combo or "").strip()
