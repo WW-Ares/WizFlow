@@ -89,9 +89,10 @@ def action_summary(a: dict) -> str:
 
 
 class ActionDialog(ctk.CTkToplevel):
-    def __init__(self, master, action=None, on_save=None):
+    def __init__(self, master, action=None, on_save=None, inline: bool = False):
         super().__init__(master)
         self.on_save = on_save
+        self.inline = inline
         self.action = copy.deepcopy(action or {"type": "click"})
         self.title("编辑动作")
         self.geometry("520x620")
@@ -185,17 +186,26 @@ class ActionDialog(ctk.CTkToplevel):
             self._field("keys", "按键", a.get("keys", "1"), 180)
             self._field("hold_ms", "按住时长(ms)", a.get("hold_ms", 40), 80)
         elif t == "script":
-            self._combo("op", "操作", list(OP_DISP.keys()),
-                        OP_REV.get(a.get("op", "run"), "运行"))
-            self._combo("target", "目标", list(TARGET_DISP.keys()),
-                        TARGET_REV.get(a.get("target", "current"), "当前脚本"))
+            if self.inline:
+                self._combo("op", "操作", ["运行", "停止"],
+                            "停止" if str(a.get("op")) == "stop" else "运行")
+                self.vars["target"] = tk.StringVar(value="指定脚本")
+                self.vars["busy"] = tk.StringVar(value="切换")
+                self.vars["wait"] = tk.BooleanVar(value=True)
+            else:
+                self._combo("op", "操作", list(OP_DISP.keys()),
+                            OP_REV.get(a.get("op", "run"), "运行"))
+                self._combo("target", "目标", list(TARGET_DISP.keys()),
+                            TARGET_REV.get(a.get("target", "current"), "当前脚本"))
             names = ["（选择脚本）"] + [p.name for p in list_scripts()]
             self._combo("path", "脚本", names, Path(str(a.get("path", ""))).name or "（选择脚本）")
-            self._combo("busy", "忙碌时", list(BUSY_DISP.keys()),
-                        BUSY_REV.get(a.get("busy", "switch"), "切换"))
+            if not self.inline:
+                self._combo("busy", "忙碌时", list(BUSY_DISP.keys()),
+                            BUSY_REV.get(a.get("busy", "switch"), "切换"))
             self._field("anchor_x", "锚点 X（可空）", (a.get("anchor") or ["", ""])[0], 80)
             self._field("anchor_y", "锚点 Y（可空）", (a.get("anchor") or ["", ""])[1], 80)
-            self._switch("wait", "等待脚本执行完", a.get("wait", True))
+            if not self.inline:
+                self._switch("wait", "等待脚本执行完", a.get("wait", True))
         elif t == "wait":
             self._field("ms", "等待毫秒", a.get("ms", 200), 100)
         elif t == "text":
@@ -270,8 +280,12 @@ class ActionDialog(ctk.CTkToplevel):
             out["hold_ms"] = int(float(self._v("hold_ms", 40) or 40))
         elif t == "script":
             name = self._v("path", "")
-            out["op"] = OP_DISP.get(self._v("op", "运行"), "run")
-            out["target"] = TARGET_DISP.get(self._v("target", "当前脚本"), "current")
+            op = OP_DISP.get(self._v("op", "运行"), "run")
+            if self.inline:
+                op = "stop" if self._v("op", "运行") == "停止" else "run"
+            out["op"] = op
+            out["target"] = "current" if op != "run" else TARGET_DISP.get(
+                self._v("target", "当前脚本"), "current")
             out["path"] = "" if name in ("", "（选择脚本）") else ("scripts/" + name)
             out["busy"] = BUSY_DISP.get(self._v("busy", "切换"), "switch")
             ax, ay = self._v("anchor_x", ""), self._v("anchor_y", "")
@@ -470,6 +484,10 @@ class RuleDialog(ctk.CTkToplevel):
         self.max_var = tk.StringVar(value=str(self.rule.get("max_triggers", 0)))
         entry(grid, width=80, textvariable=self.max_var).grid(row=2, column=3, sticky="w", padx=6)
         label(grid, "0=不限", 9).grid(row=2, column=4, sticky="w")
+        label(grid, "轮询ms", 10, theme.MUTED).grid(row=2, column=5, sticky="w", padx=(10, 0))
+        self.poll_var = tk.StringVar(value=str(self.rule.get("poll_ms", 0)))
+        entry(grid, width=70, textvariable=self.poll_var).grid(row=2, column=6, sticky="w", padx=6)
+        label(grid, "0=跟随场景", 9).grid(row=2, column=7, sticky="w")
 
         self.absence_var = tk.BooleanVar(value=bool(self.rule.get("require_absence", True)))
         ctk.CTkSwitch(grid, text="只在图标从无到有时触发", variable=self.absence_var,
@@ -743,6 +761,7 @@ class RuleDialog(ctk.CTkToplevel):
         r["cooldown_ms"] = max(0, int(float(self.cooldown_var.get() or 0)))
         r["stable_frames"] = max(1, int(float(self.stable_var.get() or 1)))
         r["max_triggers"] = max(0, int(float(self.max_var.get() or 0)))
+        r["poll_ms"] = max(0, int(float(self.poll_var.get() or 0)))
         r["require_absence"] = bool(self.absence_var.get())
         r["enabled"] = bool(self.enabled_var.get())
         r["template"] = self.template

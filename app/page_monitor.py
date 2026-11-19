@@ -668,7 +668,9 @@ class MonitorPageMixin:
             elif errors:
                 text, color = "状态：常驻 %d 条 · %d 条异常" % (len(resident), len(errors)), theme.WARN
             else:
-                text, color = "状态：常驻 %d 条 · %d 个图案存在" % (len(resident), present), theme.ACCENT
+                text, color = ("状态：常驻 %d 条 · %d 个图案存在 · 抓屏 %.1fms"
+                               % (len(resident), present,
+                                  float(getattr(engine, "grab_ms", 0.0)))), theme.ACCENT
             self.rules_status.configure(text=text, text_color=color)
             for rid, lab in list(getattr(self, "_rule_status_labels", {}).items()):
                 st = statuses.get(rid)
@@ -677,11 +679,13 @@ class MonitorPageMixin:
                 elif st.get("error"):
                     lab.configure(text="状态：%s" % str(st["error"])[:48], text_color=theme.WARN)
                 elif st.get("present"):
-                    lab.configure(text="状态：已出现 · %.2f" % float(st.get("score", 0)),
-                                  text_color=theme.OK)
+                    lab.configure(text="状态：已出现 · %.2f · %.1fms" % (
+                        float(st.get("score", 0)), float(st.get("cost_ms", 0))),
+                        text_color=theme.OK)
                 else:
-                    lab.configure(text="状态：监控中 · %.2f" % float(st.get("score", 0)),
-                                  text_color=theme.MUTED)
+                    lab.configure(text="状态：监控中 · %.2f · %.1fms" % (
+                        float(st.get("score", 0)), float(st.get("cost_ms", 0))),
+                        text_color=theme.MUTED)
         except Exception:
             pass
         self.after(1000, self._rules_status_tick)

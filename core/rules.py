@@ -27,6 +27,9 @@ class RuleState:
     score: float = 0.0
     error: str = ""
     center: tuple = (0, 0)
+    last_res: object = None
+    cost_ms: float = 0.0
+    next_due: float = 0.0
 
 
 class BackgroundRuleEngine(threading.Thread):
@@ -43,6 +46,7 @@ class BackgroundRuleEngine(threading.Thread):
         self._group_had_any = False
         self._group_none_since = 0.0
         self.enabled = False
+        self.grab_ms = 0.0
 
     def stop(self) -> None:
         self._stop.set()
@@ -100,7 +104,9 @@ class BackgroundRuleEngine(threading.Thread):
                 continue
             try:
                 source = self._ensure_source(group)
+                t_grab = time.perf_counter()
                 frame = source.grab(region)
+                self.grab_ms = (time.perf_counter() - t_grab) * 1000.0
             except Exception as exc:
                 for rule in rules:
                     st = self._state(str(rule.get("id")))
@@ -116,23 +122,35 @@ class BackgroundRuleEngine(threading.Thread):
             for rule in rules:
                 rid = str(rule.get("id"))
                 st = self._state(rid)
+                poll = int(rule.get("poll_ms", 0) or group.get("poll_ms", 150) or 150)
+                if now < st.next_due:
+                    results[rid] = (rule, st, st.last_hit, st.last_res, False)
+                    continue
                 try:
                     if not rule.get("template"):
                         raise ValueError("未选择图标模板")
+                    t_match = time.perf_counter()
                     res = match_rule(self.matcher, frame, region, rule, origin)
+                    st.cost_ms = (time.perf_counter() - t_match) * 1000.0
                     hit = res.score >= float(rule.get("threshold", 0.85))
                     st.score = float(res.score)
                     st.error = ""
                     st.center = tuple(res.center)
-                    results[rid] = (rule, st, hit, res)
+                    st.last_hit = hit
+                    st.last_res = res
+                    st.next_due = now + max(0.03, poll / 1000.0)
+                    results[rid] = (rule, st, hit, res, True)
                 except Exception as exc:
                     st.error = str(exc)
                     st.hit_streak = 0
                     st.miss_streak = 0
-                    results[rid] = (rule, st, False, None)
+                    st.next_due = now + 0.5
+                    results[rid] = (rule, st, False, None, True)
 
             # 稳定帧状态
-            for rid, (rule, st, hit, res) in results.items():
+            for rid, (rule, st, hit, res, evaluated) in results.items():
+                if not evaluated:
+                    continue
                 stable = max(1, int(rule.get("stable_frames", 1)))
                 if hit:
                     st.hit_streak += 1
@@ -157,7 +175,7 @@ class BackgroundRuleEngine(threading.Thread):
 
             fire_on = []
             fire_off = []
-            for rid, (rule, st, hit, res) in results.items():
+            for rid, (rule, st, hit, res, evaluated) in results.items():
                 stable = max(1, int(rule.get("stable_frames", 1)))
                 if not st.present and st.hit_streak >= stable:
                     st.present = True
@@ -184,7 +202,7 @@ class BackgroundRuleEngine(threading.Thread):
 
             # 组级：所有常驻规则都不存在
             if group.get("on_none_present"):
-                any_present = any(st.present for (_r, st, _h, _res) in results.values())
+                any_present = any(st.present for (_r, st, _h, _res, _ev) in results.values())
                 grace = max(0, int(group.get("grace_ms", 600))) / 1000.0
                 if any_present:
                     self._group_had_any = True
@@ -209,5 +227,5 @@ class BackgroundRuleEngine(threading.Thread):
         out = []
         for rid, st in list(self._states.items()):
             out.append({"id": rid, "present": st.present, "score": st.score,
-                        "error": st.error})
+                        "error": st.error, "cost_ms": st.cost_ms})
         return out

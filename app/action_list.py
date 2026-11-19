@@ -87,7 +87,7 @@ class ActionList(ctk.CTkFrame):
         self._drag_idx = None
 
     def _add(self):
-        ActionDialog(self, {"type": "click"}, on_save=self._append)
+        ActionDialog(self, {"type": "click"}, on_save=self._append, inline=self.inline)
 
     def _append(self, action):
         self.actions.append(dict(action))
@@ -96,7 +96,8 @@ class ActionList(ctk.CTkFrame):
     def _edit(self, idx):
         if 0 <= idx < len(self.actions):
             ActionDialog(self, self.actions[idx],
-                         on_save=lambda a, i=idx: self._replace(i, a))
+                         on_save=lambda a, i=idx: self._replace(i, a),
+                         inline=self.inline)
 
     def _replace(self, idx, action):
         if 0 <= idx < len(self.actions):

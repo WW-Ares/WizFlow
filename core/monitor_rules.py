@@ -21,6 +21,7 @@ DEFAULTS_RULE = {
     "multiscale": True,
     "priority": 50,
     "cooldown_ms": 1000,
+    "poll_ms": 0,
     "stable_frames": 1,
     "require_absence": True,
     "max_triggers": 0,
@@ -79,6 +80,7 @@ def normalize_rule(d: dict, idx: int = 0) -> dict:
     out["multiscale"] = bool(d.get("multiscale", True))
     out["priority"] = _i(d.get("priority", 50), 50)
     out["cooldown_ms"] = max(0, _i(d.get("cooldown_ms", 1000), 1000))
+    out["poll_ms"] = max(0, _i(d.get("poll_ms", 0), 0))
     out["stable_frames"] = max(1, _i(d.get("stable_frames", 1), 1))
     out["require_absence"] = bool(d.get("require_absence", True))
     out["max_triggers"] = max(0, _i(d.get("max_triggers", 0), 0))
