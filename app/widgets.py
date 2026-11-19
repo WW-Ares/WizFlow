@@ -85,8 +85,8 @@ class KeyCaptureEntry(ctk.CTkEntry):
                 if vk in MOD_VKS:
                     continue
                 self._main = vk
-                self._result = combo
-                self.var.set(combo)
+                self._result = combo.upper()
+                self.var.set(self._result)
             elif kind == "up" and self._main == vk and self._result:
                 self.var.set(self._result)
                 if self.on_change:
@@ -127,6 +127,7 @@ class KeyCaptureEntry(ctk.CTkEntry):
             }
             name = named.get(key)
         if name:
+            name = name.upper()
             self.var.set(name)
             if self.on_change:
                 self.on_change(name)
@@ -385,6 +386,10 @@ class AutoScrollFrame(ctk.CTkFrame):
         try:
             if not self.winfo_ismapped():
                 return
+            # 内容未超出可视区时禁止滚动，避免整块内容被滚出视野
+            if self.inner.winfo_reqheight() <= self.canvas.winfo_height() + 1:
+                self.canvas.yview_moveto(0)
+                return
             x, y = self.winfo_pointerxy()
             cx, cy = self.canvas.winfo_rootx(), self.canvas.winfo_rooty()
             if not (cx <= x <= cx + self.canvas.winfo_width()
@@ -394,4 +399,3 @@ class AutoScrollFrame(ctk.CTkFrame):
             self.canvas.yview_scroll(step, "units")
         except Exception:
             pass
-

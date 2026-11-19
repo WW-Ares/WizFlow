@@ -171,9 +171,9 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         try:
             self.hotkey_hint.configure(
                 text="%s 启动/暂停 · %s 停止 · %s 录制" % (
-                    self.cfg.get("hotkeys.start_pause", "F6"),
-                    self.cfg.get("hotkeys.stop", "F7"),
-                    self.cfg.get("hotkeys.record", "F8")))
+                    str(self.cfg.get("hotkeys.start_pause", "F6")).upper(),
+                    str(self.cfg.get("hotkeys.stop", "F7")).upper(),
+                    str(self.cfg.get("hotkeys.record", "F8")).upper()))
         except Exception:
             pass
 
@@ -426,15 +426,29 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
                 self.hotkeys.join(timeout=0.5)
             except Exception:
                 pass
-        bindings = {
-            str(self.cfg.get("hotkeys.start_pause", "F6")): lambda: self.ui_queue.put(("hotkey", "start_pause")),
-            str(self.cfg.get("hotkeys.stop", "F7")): lambda: self.ui_queue.put(("hotkey", "stop")),
-            str(self.cfg.get("hotkeys.record", "F8")): lambda: self.ui_queue.put(("hotkey", "record")),
-        }
+        entries = [
+            ("启动/暂停", str(self.cfg.get("hotkeys.start_pause", "F6")).strip().upper(), "start_pause"),
+            ("停止", str(self.cfg.get("hotkeys.stop", "F7")).strip().upper(), "stop"),
+            ("录制", str(self.cfg.get("hotkeys.record", "F8")).strip().upper(), "record"),
+        ]
+        seen = {}
+        for disp, key, _act in entries:
+            if not key:
+                self._toast("热键不能为空：%s" % disp, "warn")
+                return
+            if key in seen:
+                self._toast("热键冲突：%s 同时用于「%s」和「%s」，请先改键"
+                            % (key, seen[key], disp), "warn")
+                return
+            seen[key] = disp
+        bindings = {key: (lambda a=act: self.ui_queue.put(("hotkey", a)))
+                    for _disp, key, act in entries}
         self.hotkeys = HotkeyManager(bindings, on_error=lambda m: self.ui_queue.put(("toast", m, "warn")))
         self.hotkeys.start()
         if self.hotkeys.wait_ready(1.2) and self.hotkeys.failures:
-            fails = list(self.hotkeys.failures)
+            act_by_key = {key: disp for disp, key, _act in entries}
+            fails = ["%s（%s）" % (k, act_by_key[k]) if k in act_by_key else k
+                     for k in self.hotkeys.failures]
             log("热键冲突: %s" % ", ".join(fails), "WARN")
             self.after(400, lambda: self._prompt_hotkey_conflict(fails))
 
@@ -443,7 +457,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             text = " / ".join(fails)
             if messagebox.askyesno(
                     "热键冲突",
-                    "以下热键无法注册：%s\n\n可能被其他程序占用。\n"
+                    "以下热键无法注册：%s\n\n与系统或其他程序的全局热键冲突。\n"
                     "点「是」打开设置页修改热键，点「否」稍后手动处理。" % text):
                 self._show_page("settings")
                 self._toast("请在「全局热键」里改键后点「应用热键」重试", "info")

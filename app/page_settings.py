@@ -21,37 +21,43 @@ class SettingsPageMixin:
         self.pages["settings"] = outer
         page.grid_columnconfigure(0, weight=1)
 
-        top = Card(page, "全局热键 / 路径与工具", "热键与应用目录")
-        top.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        inner = ctk.CTkFrame(top.body, fg_color="transparent")
-        inner.pack(fill="x")
-        inner.grid_columnconfigure(0, weight=1, uniform="set")
-        inner.grid_columnconfigure(1, weight=1, uniform="set")
+        toprow = ctk.CTkFrame(page, fg_color="transparent")
+        toprow.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        toprow.grid_columnconfigure(0, weight=1, uniform="top")
+        toprow.grid_columnconfigure(1, weight=1, uniform="top")
 
-        left = ctk.CTkFrame(inner, fg_color="transparent")
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 18))
+        hk = Card(toprow, "全局热键", "应用内快捷键")
+        hk.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         self.hk_vars = {}
+        self.hk_entries = {}
         for key, text in (("start_pause", "启动 / 暂停"), ("stop", "停止"), ("record", "录制")):
-            row = ctk.CTkFrame(left, fg_color="transparent")
+            row = ctk.CTkFrame(hk.body, fg_color="transparent")
             row.pack(fill="x", pady=3)
             label(row, text, 11, theme.TEXT, width=100, anchor="w").pack(side="left")
-            var = tk.StringVar(value=str(self.cfg.get("hotkeys.%s" % key, "F6")))
+            var = tk.StringVar(
+                value=str(self.cfg.get("hotkeys.%s" % key, "F6")).strip().upper())
             self.hk_vars[key] = var
-            KeyCaptureEntry(row, var, width=120).pack(side="left", padx=8)
-        self._btn(left, "应用热键", self._apply_hotkeys, width=96, color=theme.ACCENT,
+            ent = KeyCaptureEntry(row, var, width=120,
+                                  on_change=lambda _v: self._check_hotkey_dup())
+            ent.pack(side="left", padx=8)
+            self.hk_entries[key] = ent
+        self._btn(hk.body, "应用热键", self._apply_hotkeys, width=96, color=theme.ACCENT,
                   text_color="#04121f").pack(anchor="w", pady=(10, 0))
-        label(left, "热键被占用时会提示；修改后需点应用。", 9).pack(anchor="w", pady=(6, 0))
+        self.hk_hint = label(hk.body, "热键被占用时会提示；修改后需点应用。", 9)
+        self.hk_hint.pack(anchor="w", pady=(6, 0))
 
-        right = ctk.CTkFrame(inner, fg_color="transparent")
-        right.grid(row=0, column=1, sticky="nsew", padx=(18, 0))
-        pathbox = ctk.CTkFrame(right, fg_color=theme.BG2, corner_radius=8)
-        pathbox.pack(fill="both", expand=True)
-        label(pathbox, "程序目录：%s" % ROOT, 9, theme.MUTED, anchor="w",
-              justify="left", wraplength=430).pack(anchor="w", padx=10, pady=(8, 0))
-        label(pathbox, "脚本：scripts/    图标：icons/    日志：logs/    配置：config.json",
-              9, theme.MUTED, anchor="w").pack(anchor="w", padx=10, pady=(4, 0))
-        btns = ctk.CTkFrame(pathbox, fg_color="transparent")
-        btns.pack(side="bottom", anchor="w", padx=8, pady=(4, 8))
+        paths = Card(toprow, "路径与工具", "常用位置一键打开")
+        paths.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        label(paths.body, ROOT, 9, theme.MUTED, anchor="w", justify="left",
+              wraplength=420).pack(anchor="w")
+        label(paths.body, "脚本：scripts/    图标：icons/", 9, theme.MUTED,
+              anchor="w").pack(anchor="w", pady=(4, 0))
+        label(paths.body, "日志：logs/    配置：config.json", 9, theme.MUTED,
+              anchor="w").pack(anchor="w", pady=(2, 0))
+        btns = ctk.CTkFrame(paths.body, fg_color="transparent")
+        btns.pack(fill="x", pady=(10, 0))
+        for _c in (0, 1, 2):
+            btns.grid_columnconfigure(_c, weight=1, uniform="pbtn")
         for i, (txt, cmd) in enumerate([
             ("打开程序目录", lambda: os.startfile(str(ROOT))),
             ("打开脚本目录", self._open_scripts_dir),
@@ -59,8 +65,12 @@ class SettingsPageMixin:
             ("打开图标目录", lambda: os.startfile(str(ICONS_DIR))),
             ("打开配置", lambda: os.startfile(str(CONFIG_FILE))),
         ]):
-            self._btn(btns, txt, cmd, width=104).grid(row=i // 3, column=i % 3,
-                                                      padx=(0, 6), pady=3, sticky="w")
+            col = 1 if i == 4 else i % 3
+            row = i // 3
+            span = 2 if i == 4 else 1
+            btn = self._btn(btns, txt, cmd, width=90, height=30)
+            btn.grid(row=row, column=col, columnspan=span, sticky="ew",
+                     padx=3, pady=3)
 
         keep = ctk.CTkFrame(page, fg_color="transparent")
         keep.grid(row=1, column=0, sticky="ew", pady=8)
@@ -130,11 +140,49 @@ class SettingsPageMixin:
         except Exception as exc:
             self._toast("打开项目主页失败：%s" % exc, "warn")
 
+    def _check_hotkey_dup(self):
+        names = {"start_pause": "启动/暂停", "stop": "停止", "record": "录制"}
+        groups = {}
+        for k, v in self.hk_vars.items():
+            val = v.get().strip().upper()
+            if val:
+                groups.setdefault(val, []).append(names[k])
+        dup = {v: ns for v, ns in groups.items() if len(ns) > 1}
+        for k, ent in getattr(self, "hk_entries", {}).items():
+            val = self.hk_vars[k].get().strip().upper()
+            try:
+                ent.configure(border_color=theme.DANGER if val in dup else theme.LINE)
+            except Exception:
+                pass
+        try:
+            if dup:
+                text = "；".join("%s 同时用于 %s" % (k, "、".join(ns))
+                                 for k, ns in dup.items())
+                self.hk_hint.configure(text="热键冲突：" + text, text_color=theme.DANGER)
+            else:
+                self.hk_hint.configure(text="热键被占用时会提示；修改后需点应用。",
+                                       text_color=theme.MUTED)
+        except Exception:
+            pass
+
     def _apply_hotkeys(self):
-        vals = {k: v.get().strip() for k, v in self.hk_vars.items()}
-        if len(set(vals.values())) != len(vals):
-            self._toast("热键不能重复", "warn")
+        names = {"start_pause": "启动/暂停", "stop": "停止", "record": "录制"}
+        vals = {k: v.get().strip().upper() for k, v in self.hk_vars.items()}
+        empty = [names[k] for k, v in vals.items() if not v]
+        if empty:
+            self._toast("请先设置热键：%s" % "、".join(empty), "warn")
             return
+        groups = {}
+        for k, v in vals.items():
+            groups.setdefault(v, []).append(names[k])
+        dup = {v: ns for v, ns in groups.items() if len(ns) > 1}
+        if dup:
+            detail = "；".join("%s 同时用于 %s" % (k, "、".join(ns))
+                               for k, ns in dup.items())
+            self._toast("热键冲突：%s。请改键后重试" % detail, "warn")
+            return
+        for k, v in vals.items():
+            self.hk_vars[k].set(v)
         self.cfg.set("hotkeys", vals)
         self.cfg.save()
         self._start_hotkeys()

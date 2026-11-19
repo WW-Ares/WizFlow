@@ -866,8 +866,8 @@ class RecordPageMixin:
 
     def _refresh_hotkey_button_text(self):
         try:
-            rec = str(self.cfg.get("hotkeys.record", "F8"))
-            start = str(self.cfg.get("hotkeys.start_pause", "F6"))
+            rec = str(self.cfg.get("hotkeys.record", "F8")).upper()
+            start = str(self.cfg.get("hotkeys.start_pause", "F6")).upper()
             self.btn_record.configure(
                 text=("■  停止录制    %s" if self.recording else "●  开始录制    %s") % rec)
             self.btn_play.configure(
