@@ -62,6 +62,19 @@ class MonitorPageMixin:
         s = self._scheme_by_id(active) or schemes[0]
         self.monitor_profile = MonitorProfile.from_dict(s.get("profile", {}))
         self.multi_group = normalize_monitor_group(s.get("group", {}))
+        g = self.multi_group
+        region = list(g.get("region") or [0, 0, 0, 0])
+        if len(region) == 4 and region[2] > 0 and region[3] > 0:
+            self.monitor_profile.region = region
+        if g.get("capture_mode"):
+            self.monitor_profile.capture_mode = g.get("capture_mode")
+        for key in ("window_title", "window_class", "window_process"):
+            if g.get(key):
+                setattr(self.monitor_profile, key, g.get(key))
+        if g.get("window_hwnd"):
+            self.monitor_profile.window_hwnd = int(g.get("window_hwnd") or 0)
+        if g.get("poll_ms"):
+            self.monitor_profile.poll_ms = int(g.get("poll_ms") or 150)
         self._save_scheme_library(save=False)
 
     def _scheme_by_id(self, sid):
@@ -114,57 +127,17 @@ class MonitorPageMixin:
 
     def _apply_scheme_to_ui(self):
         p = self.monitor_profile
-        self.mon_name_var.set(p.name)
-        self.threshold_var.set(p.threshold)
-        try:
-            self.threshold_label.configure(text="%.2f" % p.threshold)
-        except Exception:
-            pass
-        self.poll_var.set(str(p.poll_ms))
-        self.timeout_var.set(str(p.timeout_ms))
-        self.multiscale_var.set(bool(p.multiscale))
         mode_rev = {"screen": "屏幕", "window": "窗口", "window_gdi": "窗口(GDI)"}
         self.capture_var.set(mode_rev.get(p.capture_mode, "屏幕"))
-        self.mon_tpl_label.configure(text=p.template or "未选择图标")
-        self.region_label.configure(text="区域：未选择")
-        hit = "脚本操作" if p.hit_action == "script" else ("键盘操作" if p.hit_action == "key" else "鼠标操作")
-        self.hit_action_var.set(hit)
-        self.key_combo_var.set(p.key_combo or "1")
-        self.key_hold_var.set(str(p.key_hold_ms))
-        self.button_var.set({"left": "左键", "right": "右键", "middle": "滚轮",
-                             "x1": "侧键X1", "x2": "侧键X2"}.get(p.click_button, "左键"))
-        style_rev = {"single": "单击", "double": "双击", "long": "长按",
-                     "wheel_up": "上滚动", "wheel_down": "下滚动"}
-        self.click_style_var.set(style_rev.get(p.click_style, "单击"))
-        mode_map = {"center": "图标中心", "fixed": "固定位置", "follow": "偏移跟随"}
-        self.click_mode_var.set(mode_map.get(p.click_mode, "图标中心"))
-        self.fixed_x_var.set(str(p.fixed_x))
-        self.fixed_y_var.set(str(p.fixed_y))
-        self.offx_var.set(str(p.offset_x))
-        self.offy_var.set(str(p.offset_y))
-        self.rand_x_var.set(str(p.random_x))
-        self.rand_y_var.set(str(p.random_y))
-        self.hold_var.set(str(p.hold_ms))
-        self.wheel_amount_var.set(str(p.wheel_amount))
-        self.wheel_interval_var.set(str(p.wheel_interval_ms))
-        rs = p.run_script or ""
         try:
-            self.run_script_var.set(Path(rs).name if rs else "（不运行）")
+            self.scene_poll_var.set(str(p.poll_ms))
         except Exception:
             pass
-        try:
-            self.anchor_x_var.set(str(p.script_anchor[0]) if len(p.script_anchor) == 2 else "")
-            self.anchor_y_var.set(str(p.script_anchor[1]) if len(p.script_anchor) == 2 else "")
-        except Exception:
-            pass
-        self._refresh_fixed_label()
+        self.region_shot = None
         self._refresh_window_label()
         self._refresh_region_label()
-        self._on_hit_action_change(initial=True)
-        self._on_click_mode_change(initial=True)
-        self._on_mouse_button_change(initial=True)
+        self._refresh_rules_list()
         self._refresh_multi_label()
-        self._refresh_monitor_script_menu()
 
     def _ask_scheme_name(self, title, initial=""):
         return simpledialog.askstring(title, "方案名称：", initialvalue=initial, parent=self)
@@ -290,72 +263,56 @@ class MonitorPageMixin:
         self._init_scheme_library()
         self.region_shot = None
 
-        region = Card(page, "监控区域", "框选后抓取图标")
-        region.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 6))
-        scheme_row = ctk.CTkFrame(region.body, fg_color="transparent")
-        scheme_row.pack(fill="x", pady=(0, 6))
-        label(scheme_row, "方案", 10).pack(side="left")
+        region = Card(page, "监控场景", "抓屏源 + 场景区域")
+        region.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+
+        srow = ctk.CTkFrame(region.body, fg_color="transparent")
+        srow.pack(fill="x")
+        label(srow, "方案", 10).pack(side="left")
         self.scheme_var = tk.StringVar(value="")
-        self.scheme_menu = ctk.CTkOptionMenu(scheme_row, variable=self.scheme_var, values=["默认方案"],
-                                             width=130, height=26, fg_color=theme.CARD2,
-                                             button_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
-                                             command=self._switch_scheme)
+        self.scheme_menu = ctk.CTkOptionMenu(
+            srow, variable=self.scheme_var, values=["默认方案"], width=170, height=28,
+            fg_color=theme.CARD2, button_color=theme.LINE, font=(theme.FONT, theme.fs(10)),
+            command=self._switch_scheme)
         self.scheme_menu.pack(side="left", padx=4)
-        for text, cmd in (("新建", self._new_scheme), ("复制", self._copy_scheme),
-                          ("改名", self._rename_scheme), ("删除", self._delete_scheme),
-                          ("导入", self._import_scheme), ("导出", self._export_scheme)):
-            ctk.CTkButton(scheme_row, text=text, width=44, height=26, fg_color=theme.CARD2,
-                          hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
-                          command=cmd).pack(side="left", padx=2)
+        self._btn(srow, "新建", self._new_scheme, width=48, height=28).pack(side="left")
+        self._btn(srow, "复制", self._copy_scheme, width=48, height=28).pack(side="left", padx=3)
+        self._btn(srow, "改名", self._rename_scheme, width=48, height=28).pack(side="left")
+        self._btn(srow, "删除", self._delete_scheme, width=48, height=28).pack(side="left", padx=3)
         self._refresh_scheme_menu()
 
-        caprow = ctk.CTkFrame(region.body, fg_color="transparent")
-        caprow.pack(fill="x", pady=(0, 6))
-        label(caprow, "捕获方式", 10).pack(side="left")
-        mode_map = {"屏幕": "screen", "窗口": "window", "窗口(GDI)": "window_gdi"}
-        mode_rev = {v: k for k, v in mode_map.items()}
-        self.capture_var = tk.StringVar(value=mode_rev.get(self.monitor_profile.capture_mode, "屏幕"))
-        ctk.CTkOptionMenu(caprow, variable=self.capture_var, values=list(mode_map.keys()),
-                          width=110, height=28, fg_color=theme.CARD2, button_color=theme.LINE,
+        crow = ctk.CTkFrame(region.body, fg_color="transparent")
+        crow.pack(fill="x", pady=(6, 0))
+        label(crow, "抓屏方式", 10).pack(side="left")
+        self.capture_var = tk.StringVar(value="屏幕")
+        ctk.CTkOptionMenu(crow, variable=self.capture_var,
+                          values=["屏幕", "窗口", "窗口(GDI)"], width=110, height=28,
+                          fg_color=theme.CARD2, button_color=theme.LINE,
                           font=(theme.FONT, theme.fs(10)),
-                          command=lambda _v: self._on_capture_mode_change()).pack(side="left", padx=6)
-        self.window_btn = ctk.CTkButton(caprow, text="选择窗口", width=84, height=28,
-                                        fg_color=theme.CARD2, hover_color=theme.LINE,
-                                        font=(theme.FONT, theme.fs(10)),
-                                        command=self._choose_window)
-        self.window_btn.pack(side="left", padx=4)
-        self.window_label = label(caprow, "", 9, theme.TEXT, anchor="w")
-        self.window_label.pack(side="left", padx=4, fill="x", expand=True)
+                          command=lambda _v: self._on_capture_mode_change()).pack(side="left", padx=4)
+        self.window_btn = self._btn(crow, "选择窗口", self._choose_window, width=84, height=28)
+        self.window_btn.pack(side="left", padx=2)
+        self.window_label = label(crow, "使用整个屏幕", 9, theme.MUTED)
+        self.window_label.pack(side="left", padx=6)
 
-        btns = ctk.CTkFrame(region.body, fg_color="transparent")
-        btns.pack(fill="x")
-        self._btn(btns, "框选区域", lambda: self._pick_region(False), width=88,
-                  color=theme.ACCENT, text_color="#04121f").pack(side="left")
-        self._btn(btns, "测试匹配", self._test_match, width=80).pack(side="left")
-        self._btn(btns, "多图标规则", self._open_rules_window, width=96,
-                  color=theme.PURPLE, text_color="white").pack(side="left", padx=6)
+        rrow = ctk.CTkFrame(region.body, fg_color="transparent")
+        rrow.pack(fill="x", pady=(6, 0))
+        self.region_label = label(rrow, "区域：未选择", 10, theme.TEXT)
+        self.region_label.pack(side="left")
+        self._btn(rrow, "框选区域", lambda: self._pick_region(False), width=80, height=28,
+                  color=theme.ACCENT, text_color="#04121f").pack(side="left", padx=6)
+        self._btn(rrow, "刷新预览", self._grab_preview, width=76, height=28).pack(side="left")
+        label(rrow, "轮询", 9).pack(side="left", padx=(10, 2))
+        self.scene_poll_var = tk.StringVar(value=str(self.monitor_profile.poll_ms))
+        pe = entry(rrow, width=52, textvariable=self.scene_poll_var)
+        pe.pack(side="left")
+        pe.bind("<FocusOut>", lambda _e: self._sync_profile())
+        label(rrow, "ms", 9).pack(side="left", padx=2)
 
-        self.region_label = label(region.body, "区域：未选择", 10, theme.TEXT)
-        self.region_label.pack(anchor="w", pady=(10, 2))
-        self.multi_label = label(region.body, "", 9, theme.PURPLE)
-        self.multi_label.pack(anchor="w", pady=(0, 6))
-        self._refresh_multi_label()
-        self._refresh_window_label()
-        self._refresh_region_label()
-        self._on_capture_mode_change(initial=True)
         self.preview_panel = ImagePanel(region.body, size=(390, 190), text="框选区域后点击刷新预览")
-        self.preview_panel.pack(fill="x")
+        self.preview_panel.pack(fill="x", pady=(8, 0))
 
-        name_row = ctk.CTkFrame(region.body, fg_color="transparent")
-        name_row.pack(fill="x", pady=(10, 0))
-        label(name_row, "图标名", 10).pack(side="left")
-        self.icon_name_var = tk.StringVar(value="")
-        entry(name_row, width=180, textvariable=self.icon_name_var).pack(side="left", padx=6)
-        self._btn(name_row, "抓取并保存图标", self._capture_icon, width=124,
-                  color=theme.OK, text_color="#04121f").pack(side="left")
-        label(name_row, "保存到 icons/", 9).pack(side="left", padx=6)
-
-        icons = Card(page, "图标库", "点击选用模板")
+        icons = Card(page, "图标库", "点击查看，规则里选择模板")
         icons.grid(row=1, column=0, sticky="nsew", padx=(0, 6), pady=(6, 0))
         ih = ctk.CTkFrame(icons.body, fg_color="transparent")
         ih.pack(fill="x")
@@ -369,448 +326,236 @@ class MonitorPageMixin:
                                                     corner_radius=8)
         self.icons_scroll.pack(fill="both", expand=True, pady=(8, 0))
 
-        rules_card = Card(page, "后台规则", "图案出现 / 消失时运行、暂停、停止脚本")
-        rules_card.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        rb = rules_card.body
-        rtop = ctk.CTkFrame(rb, fg_color="transparent")
-        rtop.pack(fill="x")
-        ctk.CTkButton(rtop, text="+ 新建规则", width=100, height=28, fg_color=theme.ACCENT,
+        rules = Card(page, "监控规则", "常驻 = 脚本外运行；也可插入脚本节点")
+        rules.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(6, 0))
+        top = ctk.CTkFrame(rules.body, fg_color="transparent")
+        top.pack(fill="x")
+        ctk.CTkButton(top, text="+ 新建规则", width=100, height=28, fg_color=theme.ACCENT,
                       text_color="#04121f", font=(theme.FONT, theme.fs(10), "bold"),
-                      command=self._new_background_rule).pack(side="left")
-        ctk.CTkButton(rtop, text="从当前方案新建", width=120, height=28, fg_color=theme.CARD2,
+                      command=self._new_rule).pack(side="left")
+        ctk.CTkButton(top, text="管理组", width=72, height=28, fg_color=theme.PURPLE,
+                      text_color="white", font=(theme.FONT, theme.fs(9)),
+                      command=self._open_rules_window).pack(side="left", padx=6)
+        ctk.CTkButton(top, text="测试全部", width=76, height=28, fg_color=theme.CARD2,
                       hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
-                      command=self._rule_from_profile).pack(side="left", padx=6)
-        ctk.CTkButton(rtop, text="清空", width=56, height=28, fg_color=theme.CARD2,
-                      hover_color=theme.DANGER, font=(theme.FONT, theme.fs(9)),
-                      command=self._clear_background_rules).pack(side="left")
-        self.rules_status = label(rtop, "状态：未启用", 9, theme.MUTED)
-        self.rules_status.pack(side="left", padx=10)
-        self.rules_scroll = ctk.CTkScrollableFrame(rb, fg_color=theme.BG2,
-                                                    corner_radius=8, height=170)
-        self.rules_scroll.pack(fill="x", expand=True, pady=(6, 0))
+                      command=self._test_all_rules).pack(side="left")
+        ctk.CTkButton(top, text="插入整组", width=76, height=28, fg_color=theme.CARD2,
+                      hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
+                      command=self._insert_multi_group).pack(side="left", padx=6)
+        self.rules_status = label(rules.body, "状态：未启用", 9, theme.MUTED)
+        self.rules_status.pack(anchor="w", pady=(6, 2))
+        self.multi_label = label(rules.body, "", 9, theme.PURPLE)
+        self.multi_label.pack(anchor="w", pady=(0, 4))
+        self.rules_scroll = ctk.CTkScrollableFrame(rules.body, fg_color=theme.BG2,
+                                                    corner_radius=8)
+        self.rules_scroll.pack(fill="both", expand=True)
         self._rule_status_labels = {}
-        self._refresh_background_rules()
+        self._refresh_rules_list()
         self.after(1000, self._rules_status_tick)
 
-        params = Card(page, "监控参数", "命中后位置同步")
-        params.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(6, 0))
-        body = params.body
-        body.grid_columnconfigure(1, weight=1)
+    # ------------------------------------------------------------ 规则列表
+    def _rules(self) -> list[dict]:
+        return list(self.multi_group.get("rules") or [])
 
-        r = 0
-        label(body, "方案名", 10).grid(row=r, column=0, sticky="w", pady=3)
-        self.mon_name_var = tk.StringVar(value=self.monitor_profile.name)
-        e = entry(body, width=180, textvariable=self.mon_name_var)
-        e.grid(row=r, column=1, sticky="ew", pady=3)
-        e.bind("<FocusOut>", lambda _e: self._sync_profile())
-        r += 1
-
-        label(body, "模板", 10).grid(row=r, column=0, sticky="w", pady=3)
-        self.mon_tpl_label = label(body, self.monitor_profile.template or "未选择图标", 9,
-                                   theme.TEXT, anchor="w")
-        self.mon_tpl_label.grid(row=r, column=1, sticky="ew", pady=3)
-        r += 1
-
-        label(body, "相似度", 10).grid(row=r, column=0, sticky="w", pady=3)
-        th = ctk.CTkFrame(body, fg_color="transparent")
-        th.grid(row=r, column=1, sticky="ew", pady=3)
-        self.threshold_var = tk.DoubleVar(value=self.monitor_profile.threshold)
-        self.threshold_slider = ctk.CTkSlider(th, from_=0.50, to=0.99, number_of_steps=49,
-                                              variable=self.threshold_var,
-                                              progress_color=theme.ACCENT,
-                                              command=lambda _v: self._on_threshold())
-        self.threshold_slider.pack(side="left", fill="x", expand=True)
-        self.threshold_label = ctk.CTkLabel(th, text="%.2f" % self.monitor_profile.threshold,
-                                            width=44, font=(theme.MONO, theme.fs(10)), text_color=theme.ACCENT)
-        self.threshold_label.pack(side="left", padx=(8, 0))
-        r += 1
-
-        label(body, "轮询间隔", 10).grid(row=r, column=0, sticky="w", pady=3)
-        rr = ctk.CTkFrame(body, fg_color="transparent")
-        rr.grid(row=r, column=1, sticky="ew", pady=3)
-        self.poll_var = tk.StringVar(value=str(self.monitor_profile.poll_ms))
-        pe = entry(rr, width=64, textvariable=self.poll_var)
-        pe.pack(side="left")
-        pe.bind("<FocusOut>", lambda _e: self._sync_profile())
-        label(rr, "ms", 9).pack(side="left", padx=(4, 12))
-        label(rr, "超时", 10).pack(side="left")
-        self.timeout_var = tk.StringVar(value=str(self.monitor_profile.timeout_ms))
-        te = entry(rr, width=74, textvariable=self.timeout_var)
-        te.pack(side="left", padx=4)
-        te.bind("<FocusOut>", lambda _e: self._sync_profile())
-        label(rr, "ms（0=一直等）", 9).pack(side="left")
-        r += 1
-
-        self.multiscale_var = tk.BooleanVar(value=self.monitor_profile.multiscale)
-        ctk.CTkSwitch(body, text="多尺度匹配（图标缩放后仍可识别）", variable=self.multiscale_var,
-                      font=(theme.FONT, theme.fs(10)), progress_color=theme.ACCENT,
-                      command=self._sync_profile).grid(row=r, column=0, columnspan=2,
-                                                       sticky="w", pady=(6, 2))
-        r += 1
-        BTN_DISP = {"左键": "left", "右键": "right", "滚轮": "middle", "侧键X1": "x1", "侧键X2": "x2"}
-        BTN_REV = {v: k for k, v in BTN_DISP.items()}
-        STYLE_DISP = {"单击": "single", "双击": "double", "长按": "long",
-                      "上滚动": "wheel_up", "下滚动": "wheel_down"}
-        STYLE_REV = {v: k for k, v in STYLE_DISP.items()}
-        CLICK_STYLES = ["单击", "双击", "长按"]
-        WHEEL_STYLES = ["上滚动", "下滚动"]
-        MODE_DISP = {"图标中心": "center", "固定位置": "fixed", "偏移跟随": "follow"}
-        MODE_REV = {v: k for k, v in MODE_DISP.items()}
-
-        label(body, "命中后动作", 10).grid(row=r, column=0, sticky="w", pady=3)
-        self.hit_action_var = tk.StringVar(
-            value="脚本操作" if self.monitor_profile.hit_action == "script" else ("键盘操作" if self.monitor_profile.hit_action == "key" else "鼠标操作"))
-        ctk.CTkOptionMenu(body, variable=self.hit_action_var,
-                          values=["鼠标操作", "键盘操作", "脚本操作"], width=140, height=28,
-                          fg_color=theme.CARD2, button_color=theme.LINE,
-                          command=lambda _v: self._on_hit_action_change()).grid(
-            row=r, column=1, sticky="w", pady=3)
-        r += 1
-
-        self.mouse_frame = ctk.CTkFrame(body, fg_color=theme.CARD, corner_radius=10)
-        self.mouse_frame.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(2, 4))
-        mf = self.mouse_frame
-        row1 = ctk.CTkFrame(mf, fg_color="transparent")
-        row1.pack(fill="x", padx=8, pady=(8, 2))
-        label(row1, "鼠标键", 9).pack(side="left")
-        self.button_var = tk.StringVar(value=BTN_REV.get(self.monitor_profile.click_button, "左键"))
-        self.button_menu = ctk.CTkOptionMenu(row1, variable=self.button_var, values=list(BTN_DISP.keys()),
-                                             width=70, height=26, fg_color=theme.CARD2,
-                                             button_color=theme.LINE,
-                                             font=(theme.FONT, theme.fs(9)),
-                                             command=lambda _v: self._on_mouse_button_change())
-        self.button_menu.pack(side="left", padx=4)
-        label(row1, "操作方式", 9).pack(side="left", padx=(8, 0))
-        self.click_style_var = tk.StringVar(value=STYLE_REV.get(self.monitor_profile.click_style, "单击"))
-        self.click_style_menu = ctk.CTkOptionMenu(row1, variable=self.click_style_var,
-                                                  values=list(STYLE_DISP.keys()), width=76, height=26,
-                                                  fg_color=theme.CARD2, button_color=theme.LINE,
-                                                  font=(theme.FONT, theme.fs(9)),
-                                                  command=lambda _v: self._on_click_style_change())
-        self.click_style_menu.pack(side="left", padx=4)
-
-        self.wheel_frame = ctk.CTkFrame(mf, fg_color="transparent")
-        self.wheel_frame.pack(fill="x", padx=8, pady=2)
-        label(self.wheel_frame, "格数", 9).pack(side="left")
-        self.wheel_amount_var = tk.StringVar(value=str(self.monitor_profile.wheel_amount))
-        we = entry(self.wheel_frame, width=48, textvariable=self.wheel_amount_var)
-        we.pack(side="left", padx=2)
-        we.bind("<FocusOut>", lambda _e: self._sync_profile())
-        label(self.wheel_frame, "间隔(ms)", 9).pack(side="left", padx=(8, 0))
-        self.wheel_interval_var = tk.StringVar(value=str(self.monitor_profile.wheel_interval_ms))
-        wi = entry(self.wheel_frame, width=52, textvariable=self.wheel_interval_var)
-        wi.pack(side="left", padx=2)
-        wi.bind("<FocusOut>", lambda _e: self._sync_profile())
-
-        row2 = ctk.CTkFrame(mf, fg_color="transparent")
-        row2.pack(fill="x", padx=8, pady=2)
-        label(row2, "位置模式", 9).pack(side="left")
-        self.click_mode_var = tk.StringVar(value=MODE_REV.get(self.monitor_profile.click_mode, "偏移跟随"))
-        ctk.CTkOptionMenu(row2, variable=self.click_mode_var, values=list(MODE_DISP.keys()),
-                          width=90, height=26, fg_color=theme.CARD2, button_color=theme.LINE,
-                          font=(theme.FONT, theme.fs(9)),
-                          command=lambda _v: self._on_click_mode_change()).pack(side="left", padx=4)
-
-        self.fixed_frame = ctk.CTkFrame(row2, fg_color="transparent")
-        self.fixed_frame.pack(side="left", padx=4)
-        self.fixed_x_var = tk.StringVar(value=str(self.monitor_profile.fixed_x))
-        self.fixed_y_var = tk.StringVar(value=str(self.monitor_profile.fixed_y))
-        self.fixed_label = label(self.fixed_frame, "未选择位置", 9, theme.TEXT)
-        self.fixed_label.pack(side="left", padx=(0, 4))
-        ctk.CTkButton(self.fixed_frame, text="圈选点击位置", width=96, height=26,
-                      fg_color=theme.ACCENT, text_color="#04121f",
-                      command=self._pick_fixed_point).pack(side="left")
-        self._refresh_fixed_label()
-
-        self.follow_frame = ctk.CTkFrame(row2, fg_color="transparent")
-        self.follow_frame.pack(side="left", padx=4)
-        label(self.follow_frame, "偏移 X", 9).pack(side="left")
-        self.offx_var = tk.StringVar(value=str(self.monitor_profile.offset_x))
-        ox = entry(self.follow_frame, width=48, textvariable=self.offx_var)
-        ox.pack(side="left", padx=2)
-        ox.bind("<FocusOut>", lambda _e: self._sync_profile())
-        label(self.follow_frame, "Y", 9).pack(side="left")
-        self.offy_var = tk.StringVar(value=str(self.monitor_profile.offset_y))
-        oy = entry(self.follow_frame, width=48, textvariable=self.offy_var)
-        oy.pack(side="left", padx=2)
-        oy.bind("<FocusOut>", lambda _e: self._sync_profile())
-
-        row3 = ctk.CTkFrame(mf, fg_color="transparent")
-        row3.pack(fill="x", padx=8, pady=(2, 8))
-        label(row3, "按住(ms)", 9).pack(side="left")
-        self.hold_var = tk.StringVar(value=str(self.monitor_profile.hold_ms))
-        he = entry(row3, width=44, textvariable=self.hold_var)
-        he.pack(side="left", padx=(2, 10))
-        he.bind("<FocusOut>", lambda _e: self._sync_profile())
-        label(row3, "随机 X", 9).pack(side="left")
-        self.rand_x_var = tk.StringVar(value=str(self.monitor_profile.random_x))
-        rx = entry(row3, width=48, textvariable=self.rand_x_var)
-        rx.pack(side="left", padx=2)
-        rx.bind("<FocusOut>", lambda _e: self._sync_profile())
-        label(row3, "Y", 9).pack(side="left")
-        self.rand_y_var = tk.StringVar(value=str(self.monitor_profile.random_y))
-        ry = entry(row3, width=44, textvariable=self.rand_y_var)
-        ry.pack(side="left", padx=2)
-        ry.bind("<FocusOut>", lambda _e: self._sync_profile())
-        label(row3, "±范围", 8).pack(side="left", padx=2)
-        r += 1
-
-        self.key_frame = ctk.CTkFrame(body, fg_color=theme.CARD, corner_radius=10)
-        self.key_frame.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(2, 4))
-        kf = self.key_frame
-        krow = ctk.CTkFrame(kf, fg_color="transparent")
-        krow.pack(fill="x", padx=8, pady=8)
-        label(krow, "键盘操作", 9).pack(side="left")
-        self.key_combo_var = tk.StringVar(value=self.monitor_profile.key_combo or "1")
-        ke = entry(krow, width=150, textvariable=self.key_combo_var)
-        ke.pack(side="left", padx=4)
-        ke.configure(state="readonly")
-        ctk.CTkButton(krow, text="录制按键", width=82, height=26,
-                      fg_color=theme.PURPLE, text_color="white",
-                      command=self._record_key_combo).pack(side="left", padx=4)
-        krow2 = ctk.CTkFrame(kf, fg_color="transparent")
-        krow2.pack(fill="x", padx=8, pady=(0, 8))
-        label(krow2, "按住(ms)", 9).pack(side="left")
-        self.key_hold_var = tk.StringVar(value=str(self.monitor_profile.key_hold_ms))
-        kh = entry(krow2, width=44, textvariable=self.key_hold_var)
-        kh.pack(side="left", padx=(2, 8))
-        kh.bind("<FocusOut>", lambda _e: self._sync_profile())
-        label(krow2, "点录制后直接按键；支持单键和 Ctrl/Alt/Shift/Win 组合键。", 8).pack(side="left")
-        r += 1
-
-        self.script_frame = ctk.CTkFrame(body, fg_color=theme.CARD, corner_radius=10)
-        self.script_frame.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(2, 4))
-        sf = self.script_frame
-        srow = ctk.CTkFrame(sf, fg_color="transparent")
-        srow.pack(fill="x", padx=8, pady=8)
-        label(srow, "脚本操作", 9).pack(side="left")
-        self.run_script_var = tk.StringVar(value="（不运行）")
-        self.run_script_menu = ctk.CTkOptionMenu(srow, variable=self.run_script_var,
-                                                 values=["（不运行）"], width=150, height=26,
-                                                 fg_color=theme.CARD2, button_color=theme.LINE,
-                                                 font=(theme.FONT, theme.fs(9)),
-                                                 command=lambda _v: self._sync_profile())
-        self.run_script_menu.pack(side="left", padx=4)
-        label(srow, "锚点 X", 9).pack(side="left", padx=(8, 0))
-        self.anchor_x_var = tk.StringVar(value="")
-        ax = entry(srow, width=44, textvariable=self.anchor_x_var)
-        ax.pack(side="left", padx=2)
-        ax.bind("<FocusOut>", lambda _e: self._sync_profile())
-        label(srow, "Y", 9).pack(side="left")
-        self.anchor_y_var = tk.StringVar(value="")
-        ay = entry(srow, width=44, textvariable=self.anchor_y_var)
-        ay.pack(side="left", padx=2)
-        ay.bind("<FocusOut>", lambda _e: self._sync_profile())
-        label(sf, "锚点 = 录制脚本时图标所在屏幕坐标；留空则按脚本原坐标执行。",
-              8, theme.MUTED).pack(anchor="w", padx=10, pady=(0, 8))
-        r += 1
-
-        self._refresh_monitor_script_menu()
-        self._on_hit_action_change(initial=True)
-        self._on_click_mode_change(initial=True)
-        self._on_mouse_button_change(initial=True)
-
-
-        ctk.CTkFrame(body, height=1, fg_color=theme.LINE).grid(row=r, column=0, columnspan=2,
-                                                               sticky="ew", pady=10)
-        r += 1
-
-        live_head = ctk.CTkFrame(body, fg_color="transparent")
-        live_head.grid(row=r, column=0, columnspan=2, sticky="ew")
-        self.live_var = tk.BooleanVar(value=False)
-        ctk.CTkSwitch(live_head, text="实时监控", variable=self.live_var,
-                      font=(theme.FONT, theme.fs(11), "bold"), progress_color=theme.OK,
-                      command=self._toggle_live).pack(side="left")
-        self.live_score_label = ctk.CTkLabel(live_head, text="--", font=(theme.MONO, theme.fs(11), "bold"),
-                                             text_color=theme.MUTED)
-        self.live_score_label.pack(side="right")
-        r += 1
-        self.live_bar = ctk.CTkProgressBar(body, height=8, progress_color=theme.OK,
-                                           fg_color=theme.BG2)
-        self.live_bar.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(8, 4))
-        self.live_bar.set(0)
-        r += 1
-        self.live_status = label(body, "未启动实时监控", 9)
-        self.live_status.grid(row=r, column=0, columnspan=2, sticky="w")
-        r += 1
-        self.match_panel = ImagePanel(body, size=(300, 110), text="命中预览（不保存）")
-        self.match_panel.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(8, 4))
-        r += 1
-
-        self._btn(body, "插入到当前脚本", self._insert_monitor_event, height=38,
-                  color=theme.ACCENT, text_color="#04121f",
-                  font=(theme.FONT, theme.fs(12), "bold")).grid(row=r, column=0, columnspan=2,
-                                                      sticky="ew", pady=(8, 4))
-        r += 1
-        label(body, "回放遇到该节点：轮询区域 → 命中即点击图标中心 → 继续脚本",
-              9).grid(row=r, column=0, columnspan=2, sticky="w")
-
-    # ------------------------------------------------------------ 后台规则
-    def _background_rules(self) -> list[dict]:
-        return [dict(r) for r in (self.cfg.get("background_rules") or []) if isinstance(r, dict)]
-
-    def _save_background_rules(self, rules: list[dict]):
-        self.cfg.set("background_rules", list(rules))
-        self.cfg.save()
-        self._refresh_background_rules()
-
-    @staticmethod
-    def _rule_action_text(actions) -> str:
-        ops = {"run": "运行", "pause": "暂停", "resume": "继续", "stop": "停止"}
-        out = []
-        for act in actions or []:
-            if not isinstance(act, dict):
-                continue
-            op = ops.get(str(act.get("op", "")), str(act.get("op", "")))
-            if str(act.get("op")) == "run":
-                name = Path(str(act.get("script", ""))).name or "未选脚本"
-                out.append("%s %s" % (op, name))
-            else:
-                out.append(op)
-        return "、".join(out) if out else "无"
-
-    def _refresh_background_rules(self):
+    def _refresh_rules_list(self):
         if not hasattr(self, "rules_scroll"):
             return
+        from core.actions import action_summary
         for child in list(self.rules_scroll.winfo_children()):
             child.destroy()
         self._rule_status_labels = {}
-        rules = self._background_rules()
+        rules = self._rules()
         if not rules:
             ctk.CTkLabel(self.rules_scroll,
-                         text="还没有后台规则\n点「新建规则」或「从当前方案新建」",
+                         text="还没有监控规则\n点「新建规则」或「管理组」添加",
                          font=(theme.FONT, theme.fs(10)), text_color=theme.MUTED,
                          justify="left").pack(anchor="w", padx=10, pady=10)
+            self._refresh_multi_label()
             return
         for rule in rules:
             rid = str(rule.get("id", ""))
             row = ctk.CTkFrame(self.rules_scroll, fg_color=theme.CARD, corner_radius=8)
             row.pack(fill="x", padx=4, pady=3)
-            var = tk.BooleanVar(value=bool(rule.get("enabled", True)))
-            ctk.CTkSwitch(row, text="", width=42, variable=var,
-                          progress_color=theme.ACCENT,
-                          command=lambda r=rid, v=var: self._toggle_background_rule(r, bool(v.get()))
-                          ).pack(side="left", padx=(8, 4))
-            info = ctk.CTkFrame(row, fg_color="transparent")
-            info.pack(side="left", fill="x", expand=True, pady=4)
-            label(info, "%s  ·  优先级 %s" % (rule.get("name", "规则"), rule.get("priority", 50)),
-                  10, theme.TEXT, anchor="w").pack(anchor="w")
-            label(info, "命中：%s    消失：%s" % (
-                self._rule_action_text(rule.get("on_hit")),
-                self._rule_action_text(rule.get("on_miss"))),
-                  9, theme.MUTED, anchor="w").pack(anchor="w")
-            st = label(info, "状态：等待检测", 9, theme.MUTED, anchor="w")
-            st.pack(anchor="w")
-            self._rule_status_labels[rid] = st
-            ctk.CTkButton(row, text="编辑", width=56, height=26, fg_color=theme.CARD2,
-                          hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
-                          command=lambda r=rid: self._edit_background_rule(r)).pack(side="right", padx=3)
-            ctk.CTkButton(row, text="删除", width=56, height=26, fg_color=theme.DANGER,
+
+            head = ctk.CTkFrame(row, fg_color="transparent")
+            head.pack(fill="x", padx=8, pady=(6, 0))
+            en_var = tk.BooleanVar(value=bool(rule.get("enabled", True)))
+            ctk.CTkSwitch(head, text="", width=36, variable=en_var,
+                          progress_color=theme.OK,
+                          command=lambda r=rid, v=en_var: self._set_rule_flag(r, "enabled", bool(v.get()))
+                          ).pack(side="left", padx=(0, 4))
+            label(head, "%s  ·  优先级 %s" % (rule.get("name", "规则"), rule.get("priority", 50)),
+                  10, theme.TEXT, anchor="w").pack(side="left")
+            ctk.CTkButton(head, text="删除", width=44, height=24, fg_color=theme.DANGER,
                           text_color="white", font=(theme.FONT, theme.fs(9)),
-                          command=lambda r=rid: self._delete_background_rule(r)).pack(side="right")
+                          command=lambda r=rid: self._delete_rule(r)).pack(side="right", padx=2)
+            ctk.CTkButton(head, text="插入", width=44, height=24, fg_color=theme.CARD2,
+                          hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
+                          command=lambda r=rid: self._insert_rule(r)).pack(side="right", padx=2)
+            ctk.CTkButton(head, text="编辑", width=44, height=24, fg_color=theme.CARD2,
+                          hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
+                          command=lambda r=rid: self._edit_rule(r)).pack(side="right", padx=2)
 
-    def _new_background_rule(self):
-        from .rule_dialog import RuleDialog
-        def save(rule):
-            rules = self._background_rules() + [rule]
-            self._save_background_rules(rules)
-            self._toast("已新增后台规则：%s" % rule.get("name"), "ok")
-        RuleDialog(self, None, on_save=save)
+            acts = rule.get("actions") or []
+            miss = rule.get("miss_actions") or []
+            line = "命中：" + ("、".join(action_summary(a) for a in acts[:2]) or "无")
+            if miss:
+                line += "    消失：" + "、".join(action_summary(a) for a in miss[:1])
+            body = ctk.CTkFrame(row, fg_color="transparent")
+            body.pack(fill="x", padx=8, pady=(2, 0))
+            label(body, line, 9, theme.MUTED, anchor="w", wraplength=230,
+                  justify="left").pack(side="left", fill="x", expand=True)
+            res_var = tk.BooleanVar(value=bool(rule.get("resident", False)))
+            ctk.CTkSwitch(body, text="常驻", variable=res_var, width=62,
+                          font=(theme.FONT, theme.fs(9)), progress_color=theme.ACCENT,
+                          command=lambda r=rid, v=res_var: self._set_rule_flag(r, "resident", bool(v.get()))
+                          ).pack(side="right")
 
-    def _rule_from_profile(self):
-        p = self.monitor_profile
-        region = list(p.region or [0, 0, 0, 0])
-        if len(region) != 4 or region[2] <= 0 or region[3] <= 0 or not p.template:
-            self._toast("当前方案还没有区域或图标模板，请先框选并抓取图标", "warn")
+            st = label(row, "状态：等待检测", 9, theme.MUTED, anchor="w")
+            st.pack(anchor="w", padx=8, pady=(2, 6))
+            self._rule_status_labels[rid] = st
+        self._refresh_multi_label()
+
+    def _refresh_multi_label(self):
+        try:
+            rules = self._rules()
+            resident = sum(1 for r in rules if r.get("resident"))
+            links = len(self.multi_group.get("links") or [])
+            self.multi_label.configure(
+                text="规则 %d 条 · 常驻 %d 条 · 关联组 %d 个（点「管理组」）"
+                     % (len(rules), resident, links))
+        except Exception:
+            pass
+
+    def _ensure_region_shot(self) -> bool:
+        region = self.monitor_profile.region
+        if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
+            self._toast("请先框选监控场景区域", "warn")
+            return False
+        self._sync_profile()
+        if self.region_shot is None:
+            try:
+                self.region_shot = grab(region)
+            except Exception as exc:
+                self._toast("区域截图失败：%s" % exc, "error")
+                return False
+        return True
+
+    def _new_rule(self):
+        if not self._ensure_region_shot():
             return
-        rule = {
-            "id": "rule_%d" % int(time.time() * 1000),
-            "name": "规则%d" % (len(self._background_rules()) + 1),
-            "enabled": True,
-            "priority": 50,
-            "template": p.template,
-            "threshold": float(p.threshold),
-            "region": region,
-            "capture_mode": p.capture_mode,
-            "window_title": p.window_title,
-            "window_class": p.window_class,
-            "window_process": p.window_process,
-            "window_hwnd": int(p.window_hwnd or 0),
-            "poll_ms": max(20, int(p.poll_ms)),
-            "stable_frames": 2,
-            "cooldown_ms": 500,
-            "multiscale": True,
-            "on_hit": [],
-            "on_miss": [],
-        }
-        self._save_background_rules(self._background_rules() + [rule])
-        self._toast("已按当前方案新建规则，点「编辑」配置动作", "ok")
+        from .rules_window import RuleDialog
+        RuleDialog(self, None, links=self.multi_group.get("links") or [],
+                   region_shot=self.region_shot, region=self.monitor_profile.region,
+                   default_name="规则%d" % (len(self._rules()) + 1),
+                   on_save=self._append_rule)
 
-    def _edit_background_rule(self, rid: str):
-        from .rule_dialog import RuleDialog
-        rules = self._background_rules()
-        cur = next((r for r in rules if str(r.get("id")) == rid), None)
-        if cur is None:
+    def _append_rule(self, rule):
+        g = normalize_monitor_group(self.multi_group)
+        g["rules"] = list(g.get("rules") or []) + [rule]
+        self._save_multi_group(g)
+        self._toast("已新增规则：%s" % rule.get("name"), "ok")
+
+    def _edit_rule(self, rid: str):
+        rule = next((r for r in self._rules() if str(r.get("id")) == rid), None)
+        if rule is None:
             return
-        def save(rule):
-            for i, r in enumerate(rules):
-                if str(r.get("id")) == rid:
-                    rules[i] = rule
-                    break
-            self._save_background_rules(rules)
-            self._toast("规则已保存：%s" % rule.get("name"), "ok")
-        RuleDialog(self, cur, on_save=save)
+        if not self._ensure_region_shot():
+            return
+        from .rules_window import RuleDialog
+        def save(new):
+            g = normalize_monitor_group(self.multi_group)
+            g["rules"] = [new if str(r.get("id")) == rid else r for r in g["rules"]]
+            self._save_multi_group(g)
+            self._toast("规则已保存：%s" % new.get("name"), "ok")
+        RuleDialog(self, rule, links=self.multi_group.get("links") or [],
+                   region_shot=self.region_shot, region=self.monitor_profile.region,
+                   on_save=save)
 
-    def _toggle_background_rule(self, rid: str, enabled: bool):
-        rules = self._background_rules()
-        for r in rules:
+    def _delete_rule(self, rid: str):
+        rule = next((r for r in self._rules() if str(r.get("id")) == rid), None)
+        if not rule:
+            return
+        if not messagebox.askyesno("删除规则", "确定删除「%s」？" % rule.get("name", "规则")):
+            return
+        g = normalize_monitor_group(self.multi_group)
+        g["rules"] = [r for r in g["rules"] if str(r.get("id")) != rid]
+        for link in g.get("links", []):
+            link["members"] = [m for m in link.get("members", []) if m != rid]
+        self._save_multi_group(g)
+
+    def _set_rule_flag(self, rid: str, key: str, value: bool):
+        g = normalize_monitor_group(self.multi_group)
+        for r in g.get("rules", []):
             if str(r.get("id")) == rid:
-                r["enabled"] = bool(enabled)
+                r[key] = bool(value)
                 break
-        self._save_background_rules(rules)
+        self._save_multi_group(g, silent=True)
 
-    def _delete_background_rule(self, rid: str):
-        rules = self._background_rules()
-        cur = next((r for r in rules if str(r.get("id")) == rid), None)
-        if cur and messagebox.askyesno("删除规则", "确定删除「%s」？" % cur.get("name", "规则")):
-            self._save_background_rules([r for r in rules if str(r.get("id")) != rid])
-
-    def _clear_background_rules(self):
-        if not self._background_rules():
+    def _insert_rule(self, rid: str):
+        rule = next((r for r in self._rules() if str(r.get("id")) == rid), None)
+        if rule is None:
             return
-        if messagebox.askyesno("清空规则", "确定删除全部后台规则？"):
-            self._save_background_rules([])
+        g = normalize_monitor_group(self.multi_group)
+        g["name"] = rule.get("name", "监控规则")
+        g["rules"] = [dict(rule)]
+        g["links"] = []
+        self._insert_multi_group(g)
+
+    def _test_all_rules(self):
+        region = self.monitor_profile.region
+        if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
+            self._toast("请先框选监控场景区域", "warn")
+            return
+        try:
+            frame = grab(region)
+            source = make_source(self.multi_group)
+            origin = (0, 0) if getattr(source, "mode", "screen") == "screen" else source.origin
+            try:
+                frame = source.grab(region)
+            finally:
+                source.close()
+            from core.monitor_rules import match_rule
+            lines = []
+            for rule in self._rules():
+                if not rule.get("template"):
+                    continue
+                res = match_rule(self.matcher, frame, region, rule, origin)
+                lines.append("%s %.2f" % (rule.get("name", "规则"), res.score))
+            if not lines:
+                self._toast("没有可测试的规则（需要图标模板）", "warn")
+            else:
+                self._toast("测试：" + "  ".join(lines[:4]), "ok")
+        except Exception as exc:
+            self._toast("测试失败：%s" % exc, "error")
 
     def _rules_status_tick(self):
         try:
             engine = getattr(self, "rules_engine", None)
-            rules = self._background_rules()
-            if engine is None:
-                text, color = "状态：引擎未启动", theme.WARN
+            rules = self._rules()
+            resident = [r for r in rules if r.get("resident") and r.get("enabled", True)]
+            statuses = {s.get("id"): s for s in (engine.status() if engine else [])}
+            present = sum(1 for s in statuses.values() if s.get("present"))
+            errors = [s for s in statuses.values() if s.get("error")]
+            if not resident:
+                text, color = "状态：没有常驻规则", theme.MUTED
+            elif errors:
+                text, color = "状态：常驻 %d 条 · %d 条异常" % (len(resident), len(errors)), theme.WARN
             else:
-                statuses = {s.get("id"): s for s in engine.status()}
-                enabled = sum(1 for r in rules if r.get("enabled", True))
-                present = sum(1 for s in statuses.values() if s.get("present"))
-                errors = [s for s in statuses.values() if s.get("error")]
-                if not enabled:
-                    text, color = "状态：未启用", theme.MUTED
-                elif errors:
-                    text, color = "状态：%d 条启用 · %d 条异常" % (enabled, len(errors)), theme.WARN
-                else:
-                    text, color = "状态：%d 条启用 · %d 个图案存在" % (enabled, present), theme.ACCENT
-                for rid, lab in list(getattr(self, "_rule_status_labels", {}).items()):
-                    st = statuses.get(rid)
-                    if not st:
-                        lab.configure(text="状态：等待检测", text_color=theme.MUTED)
-                    elif st.get("error"):
-                        lab.configure(text="状态：%s" % str(st["error"])[:48], text_color=theme.WARN)
-                    elif st.get("present"):
-                        lab.configure(text="状态：已出现 · %.2f" % float(st.get("score", 0)),
-                                      text_color=theme.OK)
-                    else:
-                        lab.configure(text="状态：监控中 · %.2f" % float(st.get("score", 0)),
-                                      text_color=theme.MUTED)
+                text, color = "状态：常驻 %d 条 · %d 个图案存在" % (len(resident), present), theme.ACCENT
             self.rules_status.configure(text=text, text_color=color)
+            for rid, lab in list(getattr(self, "_rule_status_labels", {}).items()):
+                st = statuses.get(rid)
+                if not st:
+                    lab.configure(text="状态：未常驻", text_color=theme.MUTED)
+                elif st.get("error"):
+                    lab.configure(text="状态：%s" % str(st["error"])[:48], text_color=theme.WARN)
+                elif st.get("present"):
+                    lab.configure(text="状态：已出现 · %.2f" % float(st.get("score", 0)),
+                                  text_color=theme.OK)
+                else:
+                    lab.configure(text="状态：监控中 · %.2f" % float(st.get("score", 0)),
+                                  text_color=theme.MUTED)
         except Exception:
             pass
         self.after(1000, self._rules_status_tick)
@@ -942,46 +687,44 @@ class MonitorPageMixin:
         self.after(160, lambda: RegionPicker(self, rect=initial,
                                              on_confirm=done, on_cancel=cancelled))
 
-    def _refresh_multi_label(self):
-        n = len(self.multi_group.get("rules", []))
-        links = len(self.multi_group.get("links", []))
-        try:
-            self.multi_label.configure(text="多图标规则：%d 条 · 关联组 %d 个（点击管理）" % (n, links))
-        except Exception:
-            pass
-
-    def _save_multi_group(self, group):
-        self.multi_group = normalize_monitor_group(group)
+    def _save_multi_group(self, group, silent: bool = False):
+        g = normalize_monitor_group(group)
+        p = self.monitor_profile
+        g["region"] = list(p.region)
+        g["capture_mode"] = p.capture_mode
+        g["window_title"] = p.window_title
+        g["window_class"] = p.window_class
+        g["window_process"] = p.window_process
+        g["window_hwnd"] = int(p.window_hwnd or 0)
+        g["poll_ms"] = max(20, int(p.poll_ms or 150))
+        self.multi_group = g
         self.cfg.set("multi_monitor", self.multi_group)
+        self.cfg.set("monitor", p.to_dict())
         try:
             self._update_active_scheme_memory()
             self.cfg.set("monitor_schemes", self.schemes)
+            self.cfg.set("active_scheme", self.active_scheme_id)
         except Exception:
             pass
         self.cfg.save()
         self._refresh_multi_label()
-        self._toast("多图标规则已保存：%d 条规则" % len(self.multi_group.get("rules", [])), "ok")
+        self._refresh_rules_list()
+        if not silent:
+            self._toast("监控规则已保存：%d 条规则" % len(self.multi_group.get("rules", [])), "ok")
 
     def _open_rules_window(self):
-        region = self.monitor_profile.region
-        if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
-            self._toast("请先框选监控区域", "warn")
+        if not self._ensure_region_shot():
             return
-        self._sync_profile()
-        if self.region_shot is None:
-            try:
-                self.region_shot = grab(region)
-            except Exception as exc:
-                self._toast("区域截图失败：%s" % exc, "error")
-                return
+        region = self.monitor_profile.region
         self.multi_group["region"] = [int(v) for v in region]
         RulesWindow(self, self.multi_group, self.region_shot, region,
                     on_save=self._save_multi_group,
                     on_insert=self._insert_multi_group)
 
-    def _insert_multi_group(self, group):
-        g = normalize_monitor_group(group)
+    def _insert_multi_group(self, group=None):
+        g = normalize_monitor_group(group or self.multi_group)
         g["region"] = [int(v) for v in self.monitor_profile.region]
+        g["capture_mode"] = self.monitor_profile.capture_mode
         if not g.get("rules"):
             self._toast("规则集为空，请先添加图标规则", "warn")
             return
@@ -1050,7 +793,6 @@ class MonitorPageMixin:
         img = load_image(path)
         if img is not None:
             self.preview_panel.show_pil(to_ctk_image(self.region_shot if self.region_shot is not None else img))
-            self.match_panel.show_pil(to_ctk_image(img))
         self._select_icon(path)
         self._refresh_icons()
         self._toast("图标已保存：%s（裁剪 %s）" % (path.name, crop_rect or ""), "ok")
@@ -1101,17 +843,8 @@ class MonitorPageMixin:
 
     def _select_icon(self, path: Path):
         self._selected_icon = str(path)
-        self.monitor_profile.template = self._icon_rel(path)
-        self.icon_selected_label.configure(text="当前模板：%s" % path.name)
-        self.mon_tpl_label.configure(text=self.monitor_profile.template)
-        self._sync_profile()
+        self.icon_selected_label.configure(text="当前图标：%s" % path.name)
         self._refresh_icons()
-        try:
-            img = load_image(path)
-            if img is not None:
-                self.match_panel.show_pil(to_ctk_image(img))
-        except Exception:
-            pass
 
     def _delete_icon(self):
         if not self._selected_icon:
@@ -1254,47 +987,23 @@ class MonitorPageMixin:
             self._sync_profile()
 
     def _sync_profile(self):
+        p = self.monitor_profile
+        p.capture_mode = self._capture_mode()
         try:
-            self.monitor_profile.name = self.mon_name_var.get().strip() or "监控1"
-            self.monitor_profile.capture_mode = self._capture_mode()
-            self.monitor_profile.poll_ms = max(20, int(float(self.poll_var.get())))
-            self.monitor_profile.timeout_ms = max(0, int(float(self.timeout_var.get())))
-            self.monitor_profile.multiscale = bool(self.multiscale_var.get())
-            if self.hit_action_var.get() == "脚本操作":
-                hit = "script"
-            elif self.hit_action_var.get() == "键盘操作":
-                hit = "key"
-            else:
-                hit = "mouse"
-            self.monitor_profile.hit_action = hit
-            self.monitor_profile.click_sync = (hit == "mouse")
-            self.monitor_profile.key_combo = self.key_combo_var.get().strip() or "1"
-            self.monitor_profile.key_hold_ms = max(1, int(float(self.key_hold_var.get() or 40)))
-            self.monitor_profile.click_button = BTN_MAP.get(self.button_var.get(), "left")
-            self.monitor_profile.click_style = STYLE_MAP.get(self.click_style_var.get(), "single")
-            self.monitor_profile.click_mode = MODE_MAP.get(self.click_mode_var.get(), "center")
-            self.monitor_profile.wheel_dir = "up" if self.monitor_profile.click_style == "wheel_up" else (
-                "down" if self.monitor_profile.click_style == "wheel_down" else self.monitor_profile.wheel_dir)
-            self.monitor_profile.wheel_amount = max(1, int(float(self.wheel_amount_var.get() or 3)))
-            self.monitor_profile.wheel_interval_ms = max(0, int(float(self.wheel_interval_var.get() or 60)))
-            self.monitor_profile.fixed_x = int(float(self.fixed_x_var.get() or 0))
-            self.monitor_profile.fixed_y = int(float(self.fixed_y_var.get() or 0))
-            self.monitor_profile.offset_x = int(float(self.offx_var.get() or 0))
-            self.monitor_profile.offset_y = int(float(self.offy_var.get() or 0))
-            self.monitor_profile.random_x = abs(int(float(self.rand_x_var.get() or 0)))
-            self.monitor_profile.random_y = abs(int(float(self.rand_y_var.get() or 0)))
-            self.monitor_profile.hold_ms = max(1, int(float(self.hold_var.get() or 40)))
-            rs = self.run_script_var.get().strip() if hasattr(self, "run_script_var") else ""
-            self.monitor_profile.run_script = "" if rs in ("", "（不运行）") else ("scripts/" + rs)
-            axs = self.anchor_x_var.get().strip() if hasattr(self, "anchor_x_var") else ""
-            ays = self.anchor_y_var.get().strip() if hasattr(self, "anchor_y_var") else ""
-            if axs and ays:
-                self.monitor_profile.script_anchor = [int(float(axs)), int(float(ays))]
-            else:
-                self.monitor_profile.script_anchor = []
+            p.poll_ms = max(20, int(float(self.scene_poll_var.get() or 150)))
         except Exception:
             pass
-        self.cfg.set("monitor", self.monitor_profile.to_dict())
+        g = dict(self.multi_group or {})
+        g["region"] = list(p.region)
+        g["capture_mode"] = p.capture_mode
+        g["window_title"] = p.window_title
+        g["window_class"] = p.window_class
+        g["window_process"] = p.window_process
+        g["window_hwnd"] = int(p.window_hwnd or 0)
+        g["poll_ms"] = p.poll_ms
+        self.multi_group = normalize_monitor_group(g)
+        self.cfg.set("monitor", p.to_dict())
+        self.cfg.set("multi_monitor", self.multi_group)
         try:
             self._update_active_scheme_memory()
             self.cfg.set("monitor_schemes", self.schemes)
@@ -1302,6 +1011,8 @@ class MonitorPageMixin:
         except Exception:
             pass
         self.cfg.save()
+        self._refresh_window_label()
+        self._refresh_region_label()
 
     def _test_match(self):
         self._sync_profile()

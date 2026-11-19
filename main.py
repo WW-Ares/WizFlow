@@ -227,12 +227,14 @@ def _selftest() -> int:
             sup_mod.make_source = orig
 
     def t_background():
-        from core.rules import normalize_rule
-        r = normalize_rule({"name": "x", "on_hit": [{"type": "script", "op": "run"}]})
-        assert r["capture_mode"] == "screen" and r["on_hit"][0]["op"] == "run"
+        from core.monitor_rules import normalize_rule, normalize_monitor_group
+        r = normalize_rule({"name": "x", "actions": [{"type": "script", "op": "run"}],
+                            "resident": True})
+        assert r["resident"] is True and r["actions"][0]["op"] == "run"
+        g = normalize_monitor_group({"region": [0, 0, 100, 100], "rules": [r]})
+        assert g["rules"][0]["resident"] is True
         c = Config(tmp / "rules.json")
-        assert isinstance(c.get("background_rules"), list)
-        assert c.get("background_group.mode") == "parallel"
+        assert isinstance(c.get("multi_monitor"), dict)
         return "rules defaults ok"
 
     check("config", t_config)

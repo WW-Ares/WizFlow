@@ -574,24 +574,27 @@ def test_background_rules():
             pass
 
     cfg = {
-        "background_rules": [
-            {"id": "A", "name": "A", "enabled": True, "priority": 90,
-             "template": str(tpl_path), "threshold": 0.9, "region": [0, 0, 200, 150],
-             "capture_mode": "screen", "poll_ms": 30, "stable_frames": 1,
-             "cooldown_ms": 0,
-             "on_hit": [{"type": "script", "op": "run", "target": "script",
-                         "script": str(tmp / "s1.json"), "busy": "switch"}],
-             "on_miss": []},
-            {"id": "B", "name": "B", "enabled": True, "priority": 80,
-             "template": str(tpl_path), "threshold": 0.9, "region": [0, 0, 200, 150],
-             "capture_mode": "screen", "poll_ms": 30, "stable_frames": 1,
-             "cooldown_ms": 0,
-             "on_hit": [{"type": "script", "op": "pause", "target": "current"}],
-             "on_miss": [{"type": "script", "op": "resume", "target": "current"}]},
-        ],
-        "background_group": {"mode": "parallel", "grace_ms": 80,
-                             "on_none_present": [{"type": "script", "op": "resume",
-                                                  "target": "current"}]},
+        "multi_monitor": {
+            "region": [0, 0, 200, 150],
+            "capture_mode": "screen",
+            "poll_ms": 30,
+            "rules": [
+                {"id": "A", "name": "A", "enabled": True, "resident": True, "priority": 90,
+                 "template": str(tpl_path), "threshold": 0.9, "roi": [],
+                 "stable_frames": 1, "cooldown_ms": 0,
+                 "actions": [{"type": "script", "op": "run", "target": "script",
+                              "path": str(tmp / "s1.json"), "busy": "switch"}],
+                 "miss_actions": []},
+                {"id": "B", "name": "B", "enabled": True, "resident": True, "priority": 80,
+                 "template": str(tpl_path), "threshold": 0.9, "roi": [],
+                 "stable_frames": 1, "cooldown_ms": 0,
+                 "actions": [{"type": "script", "op": "pause", "target": "current"}],
+                 "miss_actions": [{"type": "script", "op": "resume", "target": "current"}]},
+            ],
+            "links": [],
+            "on_none_present": [{"type": "script", "op": "resume", "target": "current"}],
+            "grace_ms": 80,
+        },
     }
     actions = []
     orig = rules_mod.make_source
@@ -622,6 +625,21 @@ def test_background_rules():
         rules_mod.make_source = orig
 
 
+def test_input_actions():
+    from core.actions import action_summary, execute_input
+    assert execute_input({"type": "click", "button": "left", "clicks": 2,
+                          "hold_ms": 1, "interval_ms": 0, "position": "center"},
+                         (10, 10), dry_run=True) == "ok"
+    assert execute_input({"type": "wheel", "direction": "down", "amount": 2,
+                          "interval_ms": 0}, (10, 10), dry_run=True) == "ok"
+    assert execute_input({"type": "key", "keys": "ctrl+a", "hold_ms": 1},
+                         dry_run=True) == "ok"
+    assert execute_input({"type": "script", "op": "run"}, dry_run=True) == "script"
+    assert "鼠标" in action_summary({"type": "click"})
+    assert "键盘" in action_summary({"type": "key", "keys": "a"})
+    return "click/wheel/key dry-run ok"
+
+
 def main():
     tests = [test_monitor_hit_and_anchor, test_monitor_timeout, test_monitor_click_modes,
              test_monitor_key_action, test_hotkey_parse,
@@ -632,7 +650,7 @@ def main():
              test_wheel_action, test_wheel_multi_action, test_keygrab_names,
              test_monitor_profile_wheel_roundtrip, test_window_capture,
              test_supervisor_edges, test_pause_reasons,
-             test_inline_node_actions, test_background_rules]
+             test_inline_node_actions, test_background_rules, test_input_actions]
     failed = 0
     for fn in tests:
         try:

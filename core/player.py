@@ -17,6 +17,7 @@ from typing import Callable
 
 from config import ROOT
 from .capture import CaptureError, make_source
+from .actions import ActionContext, execute_actions
 from .hotkeys import parse_hotkey
 from .log import log
 from .monitor_rules import MonitorEngine
@@ -348,7 +349,9 @@ class Player:
                     self.on_status("监控命中: %s  score=%.3f  执行命中动作"
                                    % (name, res.score), self._progress)
                     log("monitor hit name=%s score=%.3f inline-actions" % (name, res.score))
-                    if not self._exec_script_actions(ev.get("on_hit") or [], (cx, cy)):
+                    ctx = ActionContext(name, res, tuple(rgn), frame, self._script_dir, ev)
+                    status = execute_actions(self, ev.get("on_hit") or [], ctx)
+                    if status in ("stopped", "stop_script"):
                         return False
                     nested = ev.get("on_match") or []
                     if nested:
@@ -476,7 +479,10 @@ class Player:
             else:
                 self.on_status("监控超时/未命中: %s  best=%.3f" % (name, best_score), self._progress)
                 if "on_miss" in ev:
-                    if not self._exec_script_actions(ev.get("on_miss") or [], None):
+                    fake = MatchResult(0.0, 0, 0, 0, 0, 1.0)
+                    ctx = ActionContext(name, fake, tuple(rgn), frame, self._script_dir, ev)
+                    status = execute_actions(self, ev.get("on_miss") or [], ctx)
+                    if status in ("stopped", "stop_script"):
                         return False
                     return True
                 nested = ev.get("on_timeout") or []

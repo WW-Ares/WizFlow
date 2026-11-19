@@ -26,7 +26,9 @@ DEFAULTS_RULE = {
     "max_triggers": 0,
     "group": "",
     "recheck": True,
+    "resident": False,
     "actions": [],
+    "miss_actions": [],
 }
 
 DEFAULTS_GROUP = {
@@ -43,6 +45,8 @@ DEFAULTS_GROUP = {
     "window_class": "",
     "window_process": "",
     "window_hwnd": 0,
+    "grace_ms": 600,
+    "on_none_present": [],
     "rules": [],
     "links": [],
 }
@@ -80,8 +84,11 @@ def normalize_rule(d: dict, idx: int = 0) -> dict:
     out["max_triggers"] = max(0, _i(d.get("max_triggers", 0), 0))
     out["group"] = str(d.get("group", "") or "")
     out["recheck"] = bool(d.get("recheck", True))
+    out["resident"] = bool(d.get("resident", False))
     actions = d.get("actions") or []
     out["actions"] = [a for a in actions if isinstance(a, dict)]
+    miss = d.get("miss_actions") or []
+    out["miss_actions"] = [a for a in miss if isinstance(a, dict)]
     return out
 
 
@@ -109,6 +116,9 @@ def normalize_monitor_group(d: dict) -> dict:
     out["max_actions_per_tick"] = max(0, _i(d.get("max_actions_per_tick", 1), 1))
     out["run_mode"] = str(d.get("run_mode", "continuous"))
     out["timeout_ms"] = max(0, _i(d.get("timeout_ms", 0), 0))
+    out["grace_ms"] = max(0, _i(d.get("grace_ms", 600), 600))
+    out["on_none_present"] = [a for a in (d.get("on_none_present") or [])
+                              if isinstance(a, dict)]
     out["stop_on_match"] = bool(d.get("stop_on_match", False))
     out["capture_mode"] = str(d.get("capture_mode", "screen"))
     out["window_title"] = str(d.get("window_title", "") or "")

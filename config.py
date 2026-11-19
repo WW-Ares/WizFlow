@@ -11,7 +11,7 @@ from pathlib import Path
 
 APP_NAME = "WizFlow"
 APP_ID = "WizFlow.Desktop"
-APP_VERSION = "1.4.2"
+APP_VERSION = "1.5.0"
 
 
 def app_dir() -> Path:
@@ -71,6 +71,7 @@ DEFAULTS = {
     },
     "background_rules": [],
     "background_migrated": False,
+    "monitor_v2_migrated": False,
     "background_group": {"mode": "parallel", "grace_ms": 600, "on_none_present": []},
     "monitor_schemes": [],
     "active_scheme": "",
@@ -165,6 +166,114 @@ def _migrate_background(data: dict) -> None:
     data["background_rules"] = [rule]
 
 
+def _profile_actions(p: dict) -> list[dict]:
+    hit = str(p.get("hit_action", "mouse"))
+    style = str(p.get("click_style", "single"))
+    if hit == "key":
+        return [{"type": "key", "keys": str(p.get("key_combo", "1") or "1"),
+                 "hold_ms": int(p.get("key_hold_ms", 40) or 40)}]
+    if hit == "script":
+        return [{"type": "script", "op": "run", "target": "script",
+                 "path": str(p.get("run_script", "") or ""),
+                 "anchor": list(p.get("script_anchor") or []), "wait": True}]
+    if style in ("wheel_up", "wheel_down"):
+        return [{"type": "wheel",
+                 "direction": "up" if style == "wheel_up" else "down",
+                 "amount": int(p.get("wheel_amount", 3) or 3),
+                 "interval_ms": int(p.get("wheel_interval_ms", 60) or 60),
+                 "position": "center"}]
+    mode = str(p.get("click_mode", "center"))
+    pos = "center" if mode == "center" else ("follow" if mode == "follow" else "absolute")
+    act = {"type": "click", "button": str(p.get("click_button", "left")),
+           "clicks": 2 if style == "double" else 1,
+           "hold_ms": int(p.get("hold_ms", 40) or 40),
+           "position": pos,
+           "offset": [int(p.get("offset_x", 0) or 0), int(p.get("offset_y", 0) or 0)],
+           "random_x": abs(int(p.get("random_x", 0) or 0)),
+           "random_y": abs(int(p.get("random_y", 0) or 0))}
+    if pos == "absolute":
+        act["point"] = [int(p.get("fixed_x", 0) or 0), int(p.get("fixed_y", 0) or 0)]
+    return [act]
+
+
+def _migrate_monitor_v2(data: dict) -> None:
+    """把 monitor_profile / background_rules 合并进 multi_monitor。"""
+    if data.get("monitor_v2_migrated"):
+        return
+    data["monitor_v2_migrated"] = True
+    profile = data.get("monitor") or {}
+    group = data.get("multi_monitor") or {}
+    rules = [r for r in (group.get("rules") or []) if isinstance(r, dict)]
+    links = [l for l in (group.get("links") or []) if isinstance(l, dict)]
+    bg = [r for r in (data.get("background_rules") or []) if isinstance(r, dict)]
+
+    have_tpl = {(r.get("template"), tuple(r.get("roi") or [])) for r in rules}
+    if profile.get("template") and (profile.get("template"), tuple()) not in have_tpl:
+        rules.insert(0, {
+            "id": "rule_profile",
+            "name": profile.get("name") or "主规则",
+            "enabled": True,
+            "resident": False,
+            "priority": 50,
+            "template": profile.get("template", ""),
+            "template_rect": [],
+            "roi": [],
+            "threshold": float(profile.get("threshold", 0.85) or 0.85),
+            "multiscale": bool(profile.get("multiscale", True)),
+            "cooldown_ms": 500,
+            "stable_frames": 1,
+            "require_absence": True,
+            "max_triggers": 0,
+            "group": "",
+            "actions": _profile_actions(profile),
+            "miss_actions": [],
+        })
+
+    existing_ids = {str(r.get("id")) for r in rules}
+    for i, r in enumerate(bg):
+        rid = str(r.get("id") or ("bg%d" % (i + 1)))
+        if rid in existing_ids:
+            rid = rid + "_bg"
+        existing_ids.add(rid)
+        rules.append({
+            "id": rid,
+            "name": str(r.get("name", "后台规则")),
+            "enabled": bool(r.get("enabled", True)),
+            "resident": True,
+            "priority": int(r.get("priority", 50) or 50),
+            "template": str(r.get("template", "") or ""),
+            "template_rect": [],
+            "roi": [],
+            "threshold": float(r.get("threshold", 0.85) or 0.85),
+            "multiscale": bool(r.get("multiscale", True)),
+            "cooldown_ms": int(r.get("cooldown_ms", 500) or 500),
+            "stable_frames": int(r.get("stable_frames", 1) or 1),
+            "require_absence": True,
+            "max_triggers": 0,
+            "group": "",
+            "actions": [dict(a) for a in (r.get("on_hit") or []) if isinstance(a, dict)],
+            "miss_actions": [dict(a) for a in (r.get("on_miss") or []) if isinstance(a, dict)],
+        })
+
+    region = list(group.get("region") or [0, 0, 0, 0])
+    if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
+        region = list(profile.get("region") or [0, 0, 0, 0])
+    if (len(region) != 4 or region[2] <= 0 or region[3] <= 0) and rules:
+        region = list(rules[0].get("region") or [0, 0, 0, 0])
+    group.update({
+        "region": region,
+        "capture_mode": group.get("capture_mode") or profile.get("capture_mode", "screen"),
+        "window_title": group.get("window_title") or profile.get("window_title", ""),
+        "window_class": group.get("window_class") or profile.get("window_class", ""),
+        "window_process": group.get("window_process") or profile.get("window_process", ""),
+        "window_hwnd": int(group.get("window_hwnd") or profile.get("window_hwnd", 0) or 0),
+        "poll_ms": int(group.get("poll_ms") or profile.get("poll_ms", 150) or 150),
+        "rules": rules,
+        "links": links,
+    })
+    data["multi_monitor"] = group
+
+
 def _deep_merge(base: dict, patch: dict) -> dict:
     out = copy.deepcopy(base)
     for k, v in (patch or {}).items():
@@ -190,6 +299,7 @@ class Config:
                 if isinstance(raw, dict):
                     self.data = _deep_merge(DEFAULTS, raw)
                     _migrate_background(self.data)
+                    _migrate_monitor_v2(self.data)
         except Exception:
             # 配置损坏时用默认值继续跑，不阻断启动；原文件保留
             self.data = copy.deepcopy(DEFAULTS)

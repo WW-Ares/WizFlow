@@ -20,6 +20,7 @@ from config import (APP_NAME, APP_VERSION, CONFIG_FILE, ICONS_DIR, LOGS_DIR,
 from . import theme
 from .hud import HudWindow
 from .tray import TrayIcon
+from core.actions import action_summary, execute_input
 from core.hotkeys import HotkeyManager, parse_hotkey
 from core.log import log
 from core.monitor import MonitorProfile, ProbeResult
@@ -385,12 +386,28 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         return SCRIPTS_DIR / name
 
     def _execute_rule_action(self, rule_id: str, act: dict):
-        if str(act.get("type", "script")).lower() != "script":
+        typ = str(act.get("type", "script")).lower()
+        if typ in ("click", "long_press", "wheel", "key", "wait", "move", "drag", "text"):
+            center = act.get("_center") or (0, 0)
+            item = dict(act)
+            item.pop("_center", None)
+            threading.Thread(target=execute_input,
+                             args=(item, center), kwargs={"dry_run": False},
+                             daemon=True).start()
+            return
+        if typ == "notify":
+            self._toast(str(act.get("text", "") or "规则通知"), "info")
+            return
+        if typ == "stop":
+            if self.player.running:
+                self._stop_play()
+            return
+        if typ != "script":
             return
         op = str(act.get("op", "run")).lower()
         target = str(act.get("target", "current")).lower()
         reason = "rule:%s" % (rule_id or "group")
-        path = self._resolve_action_script(act.get("script", ""))
+        path = self._resolve_action_script(act.get("script") or act.get("path") or "")
         if target == "script" and op in ("pause", "resume", "stop"):
             if not path or not self.script_path:
                 return

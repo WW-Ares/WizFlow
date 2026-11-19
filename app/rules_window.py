@@ -9,6 +9,7 @@ import customtkinter as ctk
 from PIL import Image
 
 from config import ICONS_DIR
+from core.actions import action_summary
 from core.monitor_rules import (DEFAULTS_RULE, group_to_event, match_rule, normalize_link,
                                 normalize_monitor_group, normalize_rule)
 from core.script import list_scripts
@@ -40,12 +41,19 @@ LINK_DISP = {"互斥（只执行最高优先级）": "exclusive", "全部同帧�
 LINK_REV = {v: k for k, v in LINK_DISP.items()}
 BTN_DISP = {"左键": "left", "右键": "right", "中键": "middle", "侧键 X1": "x1", "侧键 X2": "x2"}
 BTN_REV = {v: k for k, v in BTN_DISP.items()}
-POS_DISP = {"图标中心": "center", "图标框内随机": "rect_random", "图标左上角": "top_left", "固定坐标": "absolute"}
+POS_DISP = {"图标中心": "center", "图标框内随机": "rect_random", "图标左上角": "top_left",
+            "偏移跟随": "follow", "固定坐标": "absolute"}
 POS_REV = {v: k for k, v in POS_DISP.items()}
 TO_DISP = {"相对偏移": "offset", "绝对坐标": "absolute"}
 TO_REV = {v: k for k, v in TO_DISP.items()}
 STOP_DISP = {"停止本监控": "monitor", "停止整个脚本": "script"}
 STOP_REV = {v: k for k, v in STOP_DISP.items()}
+OP_DISP = {"运行": "run", "暂停": "pause", "继续": "resume", "停止": "stop"}
+OP_REV = {v: k for k, v in OP_DISP.items()}
+TARGET_DISP = {"当前脚本": "current", "指定脚本": "script"}
+TARGET_REV = {v: k for k, v in TARGET_DISP.items()}
+BUSY_DISP = {"切换": "switch", "忽略": "ignore"}
+BUSY_REV = {v: k for k, v in BUSY_DISP.items()}
 
 
 def action_summary(a: dict) -> str:
@@ -176,8 +184,14 @@ class ActionDialog(ctk.CTkToplevel):
             self._field("keys", "按键", a.get("keys", "1"), 180)
             self._field("hold_ms", "按住时长(ms)", a.get("hold_ms", 40), 80)
         elif t == "script":
+            self._combo("op", "操作", list(OP_DISP.keys()),
+                        OP_REV.get(a.get("op", "run"), "运行"))
+            self._combo("target", "目标", list(TARGET_DISP.keys()),
+                        TARGET_REV.get(a.get("target", "current"), "当前脚本"))
             names = ["（选择脚本）"] + [p.name for p in list_scripts()]
             self._combo("path", "脚本", names, Path(str(a.get("path", ""))).name or "（选择脚本）")
+            self._combo("busy", "忙碌时", list(BUSY_DISP.keys()),
+                        BUSY_REV.get(a.get("busy", "switch"), "切换"))
             self._field("anchor_x", "锚点 X（可空）", (a.get("anchor") or ["", ""])[0], 80)
             self._field("anchor_y", "锚点 Y（可空）", (a.get("anchor") or ["", ""])[1], 80)
             self._switch("wait", "等待脚本执行完", a.get("wait", True))
@@ -210,6 +224,8 @@ class ActionDialog(ctk.CTkToplevel):
         p = a.get("point") or [0, 0]
         self._field("point_x", "固定坐标 X", p[0], 80)
         self._field("point_y", "固定坐标 Y", p[1], 80)
+        self._field("random_x", "随机偏移 X", a.get("random_x", 0), 80)
+        self._field("random_y", "随机偏移 Y", a.get("random_y", 0), 80)
 
     def _v(self, key, default=""):
         v = self.vars.get(key)
@@ -243,7 +259,10 @@ class ActionDialog(ctk.CTkToplevel):
             out["hold_ms"] = int(float(self._v("hold_ms", 40) or 40))
         elif t == "script":
             name = self._v("path", "")
+            out["op"] = OP_DISP.get(self._v("op", "运行"), "run")
+            out["target"] = TARGET_DISP.get(self._v("target", "当前脚本"), "current")
             out["path"] = "" if name in ("", "（选择脚本）") else ("scripts/" + name)
+            out["busy"] = BUSY_DISP.get(self._v("busy", "切换"), "switch")
             ax, ay = self._v("anchor_x", ""), self._v("anchor_y", "")
             if str(ax).strip() and str(ay).strip():
                 out["anchor"] = [int(float(ax)), int(float(ay))]
@@ -276,7 +295,9 @@ class ActionDialog(ctk.CTkToplevel):
         pos = POS_DISP.get(self._v("position", "图标中心"), "center")
         out = {"position": pos,
                "offset": [int(float(self._v("offset_x", 0) or 0)),
-                          int(float(self._v("offset_y", 0) or 0))]}
+                          int(float(self._v("offset_y", 0) or 0))],
+               "random_x": abs(int(float(self._v("random_x", 0) or 0))),
+               "random_y": abs(int(float(self._v("random_y", 0) or 0)))}
         if pos == "absolute":
             out["point"] = [int(float(self._v("point_x", 0) or 0)),
                             int(float(self._v("point_y", 0) or 0))]
@@ -306,6 +327,7 @@ class RuleDialog(ctk.CTkToplevel):
         self.template = self.rule.get("template", "")
         self.template_rect = list(self.rule.get("template_rect") or [])
         self.actions = list(self.rule.get("actions") or [])
+        self.miss_actions = list(self.rule.get("miss_actions") or [])
         self.title("编辑监控规则")
         self.geometry("900x760")
         self.minsize(820, 650)
@@ -365,7 +387,11 @@ class RuleDialog(ctk.CTkToplevel):
         self.enabled_var = tk.BooleanVar(value=bool(self.rule.get("enabled", True)))
         ctk.CTkSwitch(grid, text="启用该规则", variable=self.enabled_var,
                       font=(theme.FONT, theme.fs(10)), progress_color=theme.OK).grid(
-            row=3, column=3, columnspan=2, sticky="w", pady=(6, 2))
+            row=3, column=3, columnspan=1, sticky="w", pady=(6, 2))
+        self.resident_var = tk.BooleanVar(value=bool(self.rule.get("resident", False)))
+        ctk.CTkSwitch(grid, text="常驻监控", variable=self.resident_var,
+                      font=(theme.FONT, theme.fs(10)), progress_color=theme.ACCENT).grid(
+            row=3, column=4, sticky="w", pady=(6, 2))
 
         label(grid, "关联组", 10, theme.MUTED).grid(row=4, column=0, sticky="w", pady=3)
         cur_group = self.rule.get("group", "")
@@ -415,6 +441,17 @@ class RuleDialog(ctk.CTkToplevel):
                                                      corner_radius=8)
         self.actions_scroll.pack(fill="both", expand=True)
         self._refresh_actions()
+
+        miss_card = Card(self, "消失动作", "图标从有到无时执行")
+        miss_card.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        mbar = ctk.CTkFrame(miss_card.body, fg_color="transparent")
+        mbar.pack(fill="x", pady=(0, 6))
+        ctk.CTkButton(mbar, text="添加消失动作", width=110, height=28, fg_color=theme.PURPLE,
+                      text_color="white", command=self._add_miss_action).pack(side="left")
+        self.miss_scroll = ctk.CTkScrollableFrame(miss_card.body, fg_color=theme.BG2,
+                                                   corner_radius=8, height=96)
+        self.miss_scroll.pack(fill="both", expand=True)
+        self._refresh_miss_actions()
 
         bottom = ctk.CTkFrame(self, fg_color="transparent")
         bottom.pack(fill="x", padx=16, pady=(0, 12))
@@ -514,6 +551,46 @@ class RuleDialog(ctk.CTkToplevel):
             self.actions.pop(idx)
             self._refresh_actions()
 
+    def _refresh_miss_actions(self):
+        for w in list(self.miss_scroll.winfo_children()):
+            w.destroy()
+        if not self.miss_actions:
+            label(self.miss_scroll, "还没有消失动作（可留空）", 10,
+                  theme.MUTED).pack(anchor="w", padx=8, pady=8)
+            return
+        for i, a in enumerate(self.miss_actions):
+            row = ctk.CTkFrame(self.miss_scroll, fg_color="transparent")
+            row.pack(fill="x", pady=2)
+            label(row, "%02d" % (i + 1), 9, theme.LINE, width=30).pack(side="left")
+            label(row, action_summary(a), 10, theme.TEXT, anchor="w").pack(
+                side="left", fill="x", expand=True)
+            ctk.CTkButton(row, text="编辑", width=50, height=24, fg_color=theme.CARD2,
+                          command=lambda idx=i: self._edit_miss_action(idx)).pack(side="left", padx=3)
+            ctk.CTkButton(row, text="删除", width=50, height=24, fg_color=theme.DANGER,
+                          command=lambda idx=i: self._delete_miss_action(idx)).pack(side="left")
+
+    def _add_miss_action(self):
+        ActionDialog(self, {"type": "click"}, on_save=self._append_miss_action)
+
+    def _append_miss_action(self, action):
+        self.miss_actions.append(action)
+        self._refresh_miss_actions()
+
+    def _edit_miss_action(self, idx):
+        if 0 <= idx < len(self.miss_actions):
+            ActionDialog(self, self.miss_actions[idx],
+                         on_save=lambda a, i=idx: self._replace_miss_action(i, a))
+
+    def _replace_miss_action(self, idx, action):
+        if 0 <= idx < len(self.miss_actions):
+            self.miss_actions[idx] = action
+            self._refresh_miss_actions()
+
+    def _delete_miss_action(self, idx):
+        if 0 <= idx < len(self.miss_actions):
+            self.miss_actions.pop(idx)
+            self._refresh_miss_actions()
+
     def _save(self):
         r = normalize_rule(self.rule)
         r["name"] = self.name_var.get().strip() or "规则"
@@ -528,6 +605,8 @@ class RuleDialog(ctk.CTkToplevel):
         r["template_rect"] = list(self.template_rect)
         r["roi"] = list(self.roi)
         r["actions"] = list(self.actions)
+        r["resident"] = bool(self.resident_var.get())
+        r["miss_actions"] = list(self.miss_actions)
         gname = self.group_var.get()
         if gname == "（独立）":
             r["group"] = ""

@@ -17,7 +17,7 @@ from .key_record_dialog import KeyRecordDialog
 from .point_picker import PointPicker
 from .region_picker import RegionPicker
 from .icon_crop_dialog import IconCropDialog
-from .rule_dialog import ScriptActionList
+from .action_list import ActionList
 from core.screen import grab, to_ctk_image, load_image
 from .widgets import label
 from .window_icon import apply_window_icon
@@ -482,10 +482,10 @@ class EventEditorDialog(ctk.CTkToplevel):
         label(row, "ms（单次判断忽略）", 9, theme.MUTED).pack(side="left", padx=4)
 
         label(self.body, "命中时动作", 10, theme.TEXT).pack(anchor="w", padx=4, pady=(8, 2))
-        self.hit_actions = ScriptActionList(self.body, ev.get("on_hit"), inline=True, height=90)
+        self.hit_actions = ActionList(self.body, ev.get("on_hit"), height=90, inline=True)
         self.hit_actions.pack(fill="x", padx=4)
         label(self.body, "未命中 / 超时动作", 10, theme.TEXT).pack(anchor="w", padx=4, pady=(8, 2))
-        self.miss_actions = ScriptActionList(self.body, ev.get("on_miss"), inline=True, height=90)
+        self.miss_actions = ActionList(self.body, ev.get("on_miss"), height=90, inline=True)
         self.miss_actions.pack(fill="x", padx=4)
         self._hint("脚本内节点不能暂停/停止当前脚本，只能运行子脚本或停止整个回放。"
                    "「框选区域」直接在屏幕上拖拽；「从画面圈选」在当前区域截图里裁剪图标。")

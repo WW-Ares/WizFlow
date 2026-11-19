@@ -1,46 +1,21 @@
-"""后台规则引擎：多图标规则，出现/消失时执行脚本动作。
+"""后台常驻规则引擎（场景 → 规则 → 组）。
 
-单执行流：引擎只负责发动作，真正的播放控制由主窗口的 PlaybackState 执行。
+读取 multi_monitor：
+  region/capture  = 场景
+  rules[].resident= 常驻规则
+  links           = 组
 """
 from __future__ import annotations
 
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
 from .capture import make_source
 from .log import log
+from .monitor_rules import match_rule, normalize_monitor_group
 from .screen import TemplateMatcher
-
-
-def _action_list(value) -> list[dict]:
-    if not isinstance(value, list):
-        return []
-    return [dict(a) for a in value if isinstance(a, dict)]
-
-
-def normalize_rule(rule: dict) -> dict:
-    r = dict(rule or {})
-    r.setdefault("id", "rule_%d" % int(time.time() * 1000))
-    r.setdefault("name", "规则")
-    r.setdefault("enabled", True)
-    r.setdefault("priority", 50)
-    r.setdefault("template", "")
-    r.setdefault("threshold", 0.85)
-    r.setdefault("region", [0, 0, 0, 0])
-    r.setdefault("capture_mode", "screen")
-    r.setdefault("window_title", "")
-    r.setdefault("window_class", "")
-    r.setdefault("window_process", "")
-    r.setdefault("window_hwnd", 0)
-    r.setdefault("poll_ms", 150)
-    r.setdefault("stable_frames", 2)
-    r.setdefault("cooldown_ms", 500)
-    r.setdefault("multiscale", True)
-    r["on_hit"] = _action_list(r.get("on_hit"))
-    r["on_miss"] = _action_list(r.get("on_miss"))
-    return r
 
 
 @dataclass
@@ -49,10 +24,9 @@ class RuleState:
     hit_streak: int = 0
     miss_streak: int = 0
     last_fire: float = 0.0
-    last_hit: bool = False
     score: float = 0.0
     error: str = ""
-    next_due: float = 0.0
+    center: tuple = (0, 0)
 
 
 class BackgroundRuleEngine(threading.Thread):
@@ -64,7 +38,8 @@ class BackgroundRuleEngine(threading.Thread):
         self.matcher = TemplateMatcher()
         self._stop = threading.Event()
         self._states: dict[str, RuleState] = {}
-        self._sources: dict[tuple, object] = {}
+        self._source = None
+        self._source_key = None
         self._group_had_any = False
         self._group_none_since = 0.0
         self.enabled = False
@@ -72,21 +47,26 @@ class BackgroundRuleEngine(threading.Thread):
     def stop(self) -> None:
         self._stop.set()
 
-    def _close_sources(self):
-        for src in list(self._sources.values()):
+    def _close_source(self):
+        src = self._source
+        self._source = None
+        self._source_key = None
+        if src is not None:
             try:
                 src.close()
             except Exception:
                 pass
-        self._sources.clear()
 
-    def _source(self, rule: dict):
-        key = (rule.get("capture_mode", "screen"), int(rule.get("window_hwnd", 0) or 0),
-               rule.get("window_title", ""), rule.get("window_class", ""),
-               rule.get("window_process", ""))
-        if key not in self._sources:
-            self._sources[key] = make_source(rule)
-        return self._sources[key]
+    def _ensure_source(self, group: dict):
+        key = (group.get("capture_mode", "screen"), int(group.get("window_hwnd", 0) or 0),
+               group.get("window_title", ""), group.get("window_class", ""),
+               group.get("window_process", ""))
+        if self._source is not None and self._source_key == key:
+            return self._source
+        self._close_source()
+        self._source = make_source(group)
+        self._source_key = key
+        return self._source
 
     def _state(self, rid: str) -> RuleState:
         st = self._states.get(rid)
@@ -95,116 +75,116 @@ class BackgroundRuleEngine(threading.Thread):
             self._states[rid] = st
         return st
 
-    def _fire(self, rule: dict, actions):
+    def _fire(self, rule: dict, actions, center):
         for act in actions or []:
+            if not isinstance(act, dict):
+                continue
+            item = dict(act)
+            item["_center"] = list(center or (0, 0))
             try:
-                self.on_action(str(rule.get("id", "")), dict(act))
+                self.on_action(str(rule.get("id", "")), item)
             except Exception as exc:
                 log("后台规则动作派发失败: %s" % exc, "WARN")
 
     def run(self) -> None:
         while not self._stop.is_set():
             cfg = self.config_provider() or {}
-            raw = cfg.get("background_rules") or []
-            rules = [normalize_rule(r) for r in raw if isinstance(r, dict)]
-            self.enabled = any(bool(r.get("enabled", True)) for r in rules)
-            if not rules:
-                self._close_sources()
-                self._states.clear()
+            group = normalize_monitor_group(cfg.get("multi_monitor") or {})
+            region = [int(v) for v in (group.get("region") or [0, 0, 0, 0])]
+            rules = [r for r in group.get("rules", [])
+                     if bool(r.get("enabled", True)) and bool(r.get("resident", False))]
+            self.enabled = bool(rules)
+            if not rules or len(region) != 4 or region[2] <= 0 or region[3] <= 0:
+                self._close_source()
+                self._stop.wait(0.4)
+                continue
+            try:
+                source = self._ensure_source(group)
+                frame = source.grab(region)
+            except Exception as exc:
+                for rule in rules:
+                    st = self._state(str(rule.get("id")))
+                    st.error = str(exc)
+                    st.present = False
+                self._close_source()
                 self._stop.wait(0.5)
                 continue
+
             now = time.time()
-            evaluated = []
+            origin = (0, 0) if getattr(source, "mode", "screen") == "screen" else source.origin
+            results = {}
             for rule in rules:
-                rid = str(rule.get("id") or "")
+                rid = str(rule.get("id"))
                 st = self._state(rid)
-                if not bool(rule.get("enabled", True)):
-                    st.present = False
-                    st.error = ""
-                    continue
-                if now < st.next_due:
-                    evaluated.append((rule, st))
-                    continue
                 try:
-                    region = [int(v) for v in (rule.get("region") or [0, 0, 0, 0])]
-                    if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
-                        raise ValueError("监控区域未设置")
-                    template = str(rule.get("template", "") or "")
-                    if not template:
-                        raise ValueError("未选择监控图案")
-                    source = self._source(rule)
-                    frame = source.grab(region)
-                    res = self.matcher.find(frame, template,
-                                            float(rule.get("threshold", 0.85)),
-                                            bool(rule.get("multiscale", True)))
-                    hit = bool(res.score >= float(rule.get("threshold", 0.85)))
-                    st.last_hit = hit
+                    if not rule.get("template"):
+                        raise ValueError("未选择图标模板")
+                    res = match_rule(self.matcher, frame, region, rule, origin)
+                    hit = res.score >= float(rule.get("threshold", 0.85))
                     st.score = float(res.score)
                     st.error = ""
+                    st.center = tuple(res.center)
+                    results[rid] = (rule, st, hit, res)
                 except Exception as exc:
                     st.error = str(exc)
-                    st.last_hit = False
-                    st.score = 0.0
-                    st.next_due = now + max(0.3, int(rule.get("poll_ms", 150)) / 1000.0)
-                    evaluated.append((rule, st))
-                    continue
-                st.next_due = now + max(0.05, int(rule.get("poll_ms", 150)) / 1000.0)
-                evaluated.append((rule, st))
+                    st.hit_streak = 0
+                    st.miss_streak = 0
+                    results[rid] = (rule, st, False, None)
 
-            # 1) 稳定帧 + 触发
-            for rule, st in evaluated:
-                stable = max(1, int(rule.get("stable_frames", 2)))
-                if st.last_hit:
+            # 稳定帧状态
+            for rid, (rule, st, hit, res) in results.items():
+                stable = max(1, int(rule.get("stable_frames", 1)))
+                if hit:
                     st.hit_streak += 1
                     st.miss_streak = 0
                 else:
                     st.miss_streak += 1
                     st.hit_streak = 0
 
-            group = cfg.get("background_group") or {}
-            mode = str(group.get("mode", "parallel"))
+            # 互斥组：找到每个成员的最高优先级
+            best_by_link = {}
+            for link in group.get("links", []):
+                if str(link.get("type")) != "exclusive":
+                    continue
+                hits = []
+                for rid in link.get("members", []):
+                    item = results.get(rid)
+                    if item and item[2]:
+                        hits.append((int(item[0].get("priority", 50)), rid))
+                if hits:
+                    best_by_link[link.get("id")] = max(hits)[1]
+            rule_link = {r.get("id"): r.get("group") for r in rules}
 
             fire_on = []
             fire_off = []
-            for rule, st in evaluated:
-                if not bool(rule.get("enabled", True)):
-                    continue
-                stable = max(1, int(rule.get("stable_frames", 2)))
+            for rid, (rule, st, hit, res) in results.items():
+                stable = max(1, int(rule.get("stable_frames", 1)))
                 if not st.present and st.hit_streak >= stable:
                     st.present = True
-                    fire_on.append((rule, st))
+                    fire_on.append((rule, st, res))
                 elif st.present and st.miss_streak >= stable:
                     st.present = False
                     fire_off.append((rule, st))
 
-            present_priorities = {}
-            for rule, st in evaluated:
-                if st.present and bool(rule.get("enabled", True)):
-                    present_priorities[str(rule.get("id"))] = int(rule.get("priority", 50))
-
-            for rule, st in fire_on:
-                rid = str(rule.get("id", ""))
-                cooldown = max(0, int(rule.get("cooldown_ms", 500))) / 1000.0
+            for rule, st, res in fire_on:
+                link_id = rule_link.get(rule.get("id"))
+                if link_id and best_by_link.get(link_id) not in (None, rule.get("id")):
+                    continue
+                cooldown = max(0, int(rule.get("cooldown_ms", 0))) / 1000.0
                 if now - st.last_fire < cooldown:
                     continue
-                if mode == "mutex":
-                    prio = int(rule.get("priority", 50))
-                    others = [p for k, p in present_priorities.items() if k != rid]
-                    if others and max(others) > prio:
-                        continue
                 st.last_fire = now
-                self._fire(rule, rule.get("on_hit"))
+                self._fire(rule, rule.get("actions"), st.center)
             for rule, st in fire_off:
-                cooldown = max(0, int(rule.get("cooldown_ms", 500))) / 1000.0
+                cooldown = max(0, int(rule.get("cooldown_ms", 0))) / 1000.0
                 if now - st.last_fire < cooldown:
                     continue
                 st.last_fire = now
-                self._fire(rule, rule.get("on_miss"))
+                self._fire(rule, rule.get("miss_actions"), (0, 0))
 
-            # 2) 组级：所有规则都不存在
-            on_none = _action_list(group.get("on_none_present"))
-            if on_none:
-                any_present = any(st.present for _, st in evaluated)
+            # 组级：所有常驻规则都不存在
+            if group.get("on_none_present"):
+                any_present = any(st.present for (_r, st, _h, _res) in results.values())
                 grace = max(0, int(group.get("grace_ms", 600))) / 1000.0
                 if any_present:
                     self._group_had_any = True
@@ -215,20 +195,15 @@ class BackgroundRuleEngine(threading.Thread):
                     elif now - self._group_none_since >= grace:
                         self._group_had_any = False
                         self._group_none_since = 0.0
-                        for act in on_none:
-                            try:
-                                self.on_action("", dict(act))
-                            except Exception as exc:
-                                log("组动作派发失败: %s" % exc, "WARN")
+                        self._fire({"id": ""}, group.get("on_none_present"), (0, 0))
 
-            # 清理已删除规则的 source/state
             ids = {str(r.get("id")) for r in rules}
             for rid in list(self._states):
                 if rid not in ids:
                     self._states.pop(rid, None)
 
-            self._stop.wait(0.05)
-        self._close_sources()
+            self._stop.wait(max(0.05, int(group.get("poll_ms", 150)) / 1000.0))
+        self._close_source()
 
     def status(self) -> list[dict]:
         out = []
