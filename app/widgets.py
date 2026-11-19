@@ -242,7 +242,7 @@ class ScrollPage(ctk.CTkFrame):
         """把页面内容高度补到视口高度，让卡片铺满。"""
         try:
             ch = max(1, self.canvas.winfo_height())
-            h = max(ch, self.inner.winfo_reqheight())
+            h = ch
             self.canvas.itemconfigure(self.win, width=self.canvas.winfo_width(), height=h)
             self.canvas.configure(scrollregion=(0, 0, self.canvas.winfo_width(), h))
         except Exception:
@@ -264,40 +264,15 @@ class ScrollPage(ctk.CTkFrame):
     def _apply_bars(self):
         self._bars_job = None
         try:
-            bbox = self.canvas.bbox("all") or (0, 0, 0, 0)
-            cw = max(1, self.canvas.winfo_width())
-            ch = max(1, self.canvas.winfo_height())
-            need_h = (bbox[2] - bbox[0]) > cw + 8
-            need_v = (bbox[3] - bbox[1]) > ch + 1
-            if need_h:
-                self.hbar.grid()
-            else:
-                self.hbar.grid_remove()
-                self.canvas.xview_moveto(0)
-            if need_v:
-                self.vbar.grid()
-            else:
-                self.vbar.grid_remove()
-                self.canvas.yview_moveto(0)
+            self.hbar.grid_remove()
+            self.vbar.grid_remove()
+            self.canvas.xview_moveto(0)
+            self.canvas.yview_moveto(0)
         except Exception:
             pass
 
     def _wheel(self, e):
-        try:
-            if not self.winfo_ismapped():
-                return
-            x, y = self.winfo_pointerxy()
-            cx, cy = self.canvas.winfo_rootx(), self.canvas.winfo_rooty()
-            if not (cx <= x <= cx + self.canvas.winfo_width()
-                    and cy <= y <= cy + self.canvas.winfo_height()):
-                return
-            step = int(-e.delta / 120) or (-1 if e.delta > 0 else 1)
-            if e.state & 0x0001:
-                self.canvas.xview_scroll(step, "units")
-            else:
-                self.canvas.yview_scroll(step, "units")
-        except Exception:
-            pass
+        return
 
 def autohide_scrollbar(scroll_frame):
     """CTkScrollableFrame 的滚动条：内容超出才显示。"""
@@ -322,3 +297,76 @@ def autohide_scrollbar(scroll_frame):
     scroll_frame.after(120, update)
     scroll_frame.after(450, update)
     return update
+
+class AutoScrollFrame(ctk.CTkFrame):
+    """竖向滚动容器：内容超出才显示滚动条，隐藏时不占宽度。"""
+
+    def __init__(self, master, height=200, **kwargs):
+        super().__init__(master, fg_color="transparent", **kwargs)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        self.canvas = tk.Canvas(self, highlightthickness=0, bg=theme.BG2, height=height)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.vbar = ctk.CTkScrollbar(self, orientation="vertical",
+                                     command=self.canvas.yview)
+        self.vbar.grid(row=0, column=1, sticky="ns")
+        self.vbar.grid_remove()
+        self.canvas.configure(yscrollcommand=self._yset)
+        self.inner = ctk.CTkFrame(self.canvas, fg_color="transparent")
+        self.win = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
+        self._job = None
+        self.inner.bind("<Configure>", self._schedule)
+        self.canvas.bind("<Configure>", self._canvas_cfg)
+        self.canvas.bind_all("<MouseWheel>", self._wheel, add="+")
+        self.after(80, self._sync)
+
+    def _canvas_cfg(self, e):
+        try:
+            self.canvas.itemconfigure(self.win, width=e.width)
+        except Exception:
+            pass
+        self._schedule()
+
+    def _schedule(self, _e=None):
+        if self._job is not None:
+            return
+        self._job = self.after(50, self._sync)
+
+    def _sync(self):
+        self._job = None
+        try:
+            h = self.inner.winfo_reqheight()
+            self.canvas.configure(scrollregion=(0, 0, self.canvas.winfo_width(), h))
+            self._update_bar()
+        except Exception:
+            pass
+
+    def _yset(self, first, last):
+        self.vbar.set(first, last)
+        self.after_idle(self._update_bar)
+
+    def _update_bar(self):
+        try:
+            first, last = self.canvas.yview()
+            if last >= 0.999:
+                self.vbar.grid_remove()
+                self.canvas.yview_moveto(0)
+            else:
+                self.vbar.grid()
+        except Exception:
+            pass
+
+    def _wheel(self, e):
+        try:
+            if not self.winfo_ismapped():
+                return
+            x, y = self.winfo_pointerxy()
+            cx, cy = self.canvas.winfo_rootx(), self.canvas.winfo_rooty()
+            if not (cx <= x <= cx + self.canvas.winfo_width()
+                    and cy <= y <= cy + self.canvas.winfo_height()):
+                return
+            step = int(-e.delta / 120) or (-1 if e.delta > 0 else 1)
+            self.canvas.yview_scroll(step, "units")
+        except Exception:
+            pass
+

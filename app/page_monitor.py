@@ -32,7 +32,7 @@ from .icon_crop_dialog import IconCropDialog
 from .rules_window import RulesWindow
 from .point_picker import PointPicker
 from .key_record_dialog import KeyRecordDialog
-from .widgets import Card, ImagePanel, autohide_scrollbar, entry, label
+from .widgets import AutoScrollFrame, Card, ImagePanel, entry, label
 from .window_picker import WindowPicker
 
 
@@ -314,7 +314,7 @@ class MonitorPageMixin:
         self.pages["monitor"] = outer
         page.grid_columnconfigure(0, weight=3, uniform="mon")
         page.grid_columnconfigure(1, weight=2, uniform="mon")
-        page.grid_rowconfigure(0, weight=1)
+        page.grid_rowconfigure(0, weight=0)
         page.grid_rowconfigure(1, weight=1)
         self._init_scheme_library()
         self.region_shot = None
@@ -370,7 +370,7 @@ class MonitorPageMixin:
         pe.bind("<FocusOut>", lambda _e: self._sync_profile())
         label(rrow, "ms", 9).pack(side="left", padx=2)
 
-        self.preview_panel = ImagePanel(region.body, size=(390, 190), text="框选区域后点击刷新预览")
+        self.preview_panel = ImagePanel(region.body, size=(390, 140), text="框选区域后点击刷新预览")
         self.preview_panel.pack(fill="x", pady=(8, 0))
         self.preview_stop = None
         self.preview_thread = None
@@ -388,7 +388,7 @@ class MonitorPageMixin:
         self._btn(ih, "目录", self._open_icons_dir, width=58).pack(side="right", padx=6)
         self._btn(ih, "添加", self._add_icons, width=58, color=theme.OK,
                   text_color="#04121f").pack(side="right")
-        self.icons_scroll = ctk.CTkFrame(icons.body, fg_color=theme.BG2, corner_radius=8)
+        self.icons_scroll = AutoScrollFrame(icons.body, height=220)
         self.icons_scroll.pack(fill="both", expand=True, pady=(8, 0))
 
         rules = Card(page, "监控规则", "常驻 = 脚本外运行；也可插入脚本节点")
@@ -441,7 +441,7 @@ class MonitorPageMixin:
         ctk.CTkCheckBox(tools2, text="启用", variable=self.only_enabled_var, width=48,
                         font=(theme.FONT, theme.fs(9)), checkbox_width=16, checkbox_height=16,
                         command=self._refresh_rules_list).pack(side="left", padx=(4, 0))
-        self.rules_scroll = ctk.CTkFrame(rules.body, fg_color=theme.BG2, corner_radius=8)
+        self.rules_scroll = AutoScrollFrame(rules.body, height=300)
         self.rules_scroll.pack(fill="both", expand=True)
         self._rule_status_labels = {}
         self._refresh_rules_list()
@@ -455,7 +455,7 @@ class MonitorPageMixin:
         if not hasattr(self, "rules_scroll"):
             return
         from core.actions import action_summary
-        for child in list(self.rules_scroll.winfo_children()):
+        for child in list(self.rules_scroll.inner.winfo_children()):
             child.destroy()
         self._rule_status_labels = {}
         rules = self._rules()
@@ -476,7 +476,7 @@ class MonitorPageMixin:
         except Exception:
             pass
         if not rules:
-            ctk.CTkLabel(self.rules_scroll,
+            ctk.CTkLabel(self.rules_scroll.inner,
                          text="还没有监控规则\n点「新建规则」或「管理组」添加",
                          font=(theme.FONT, theme.fs(10)), text_color=theme.MUTED,
                          justify="left").pack(anchor="w", padx=10, pady=10)
@@ -484,7 +484,7 @@ class MonitorPageMixin:
             return
         for rule in rules:
             rid = str(rule.get("id", ""))
-            row = ctk.CTkFrame(self.rules_scroll, fg_color=theme.CARD, corner_radius=8)
+            row = ctk.CTkFrame(self.rules_scroll.inner, fg_color=theme.CARD, corner_radius=8)
             row.pack(fill="x", padx=4, pady=3)
             row.bind("<Double-1>", lambda _e, r=rid: self._edit_rule(r))
 
@@ -1078,14 +1078,11 @@ class MonitorPageMixin:
             finally:
                 if source is not None:
                     source.close()
-        name = self.icon_name_var.get().strip()
-        if not name:
-            name = "icon_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        name = "icon_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         IconCropDialog(self, self.region_shot, region, name,
                        default_crop=None, on_save=self._on_icon_saved)
 
     def _on_icon_saved(self, path: Path, crop_rect=None):
-        self.icon_name_var.set(path.name)
         img = load_image(path)
         if img is not None:
             self.preview_panel.show_pil(to_ctk_image(self.region_shot if self.region_shot is not None else img))
@@ -1100,7 +1097,7 @@ class MonitorPageMixin:
             return str(path)
 
     def _refresh_icons(self):
-        for child in list(self.icons_scroll.winfo_children()):
+        for child in list(self.icons_scroll.inner.winfo_children()):
             child.destroy()
         self._icon_imgs.clear()
         files = []
@@ -1108,8 +1105,8 @@ class MonitorPageMixin:
             files.extend(ICONS_DIR.glob(ext))
         files = sorted(set(files), key=lambda p: p.stat().st_mtime, reverse=True)
         if not files:
-            ctk.CTkLabel(self.icons_scroll,
-                         text="还没有图标\n在左侧框选区域后点「抓取并保存图标」",
+            ctk.CTkLabel(self.icons_scroll.inner,
+                         text="还没有图标\n在左侧框选区域后点「添加」",
                          font=(theme.FONT, theme.fs(10)), text_color=theme.MUTED,
                          justify="left").grid(row=0, column=0, columnspan=3,
                                               sticky="w", padx=8, pady=8)
@@ -1124,7 +1121,7 @@ class MonitorPageMixin:
                 cimg = None
             selected = bool(self.monitor_profile.template) and \
                 Path(self.monitor_profile.template).name == path.name
-            b = ctk.CTkButton(self.icons_scroll, text=path.stem[:12], image=cimg,
+            b = ctk.CTkButton(self.icons_scroll.inner, text=path.stem[:12], image=cimg,
                               compound="top", width=92, height=88, fg_color=theme.CARD2,
                               hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
                               border_width=1,
@@ -1134,7 +1131,7 @@ class MonitorPageMixin:
             if selected:
                 self.icon_selected_label.configure(text="当前模板：%s" % path.name)
         for c in range(3):
-            self.icons_scroll.grid_columnconfigure(c, weight=1)
+            self.icons_scroll.inner.grid_columnconfigure(c, weight=1)
         try:
             self.after(80, self._icons_autohide)
         except Exception:
@@ -1166,8 +1163,7 @@ class MonitorPageMixin:
                 return
             self._selected_icon = ""
             self.monitor_profile.template = ""
-            self.mon_tpl_label.configure(text="未选择图标")
-            self.icon_selected_label.configure(text="当前模板：未选择")
+            self.icon_selected_label.configure(text="当前图标：未选择")
             self._sync_profile()
             self._refresh_icons()
             self._toast("图标已删除", "ok")

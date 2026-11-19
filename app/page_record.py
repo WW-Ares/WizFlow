@@ -9,7 +9,7 @@ import time
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog
 
 import customtkinter as ctk
 
@@ -94,9 +94,10 @@ class RecordPageMixin:
         label(head, "速度", 10).pack(side="left")
         self.speed_var = tk.StringVar(value="1x")
         self.speed_menu = ctk.CTkOptionMenu(head, variable=self.speed_var,
-                                            values=["0.5x", "1x", "1.5x", "2x", "3x"],
-                                            width=76, height=28, fg_color=theme.CARD2,
-                                            button_color=theme.LINE, font=(theme.MONO, theme.fs(10)))
+                                            values=["0.5x", "1x", "1.5x", "2x", "3x", "5x", "自定义"],
+                                            width=86, height=28, fg_color=theme.CARD2,
+                                            button_color=theme.LINE, font=(theme.MONO, theme.fs(10)),
+                                            command=self._on_speed_change)
         self.speed_menu.pack(side="left", padx=6)
         label(head, "0 = 无限循环", 9).pack(side="left", padx=(10, 0))
 
@@ -691,6 +692,21 @@ class RecordPageMixin:
             self._toast("录制结束，没有捕获到事件", "warn")
 
     # ------------------------------------------------------------ 回放
+    def _on_speed_change(self, value):
+        if value != "自定义":
+            return
+        v = simpledialog.askfloat("自定义速度", "输入速度倍数（0.1 - 10）",
+                                  parent=self, minvalue=0.1, maxvalue=10.0, initialvalue=2.5)
+        if v is None:
+            self.speed_var.set("1x")
+            return
+        text = "%gx" % float(v)
+        values = list(self.speed_menu.cget("values"))
+        if text not in values:
+            values.insert(-1, text)
+            self.speed_menu.configure(values=values)
+        self.speed_var.set(text)
+
     def _speed(self) -> float:
         try:
             return float(self.speed_var.get().lower().rstrip("x"))

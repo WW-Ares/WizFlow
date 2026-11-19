@@ -245,16 +245,6 @@ class EventEditorDialog(ctk.CTkToplevel):
         except Exception:
             return 0, 0
 
-    def _use_cursor(self):
-        from core.winapi import cursor_pos
-        try:
-            x, y = cursor_pos()
-        except Exception:
-            return
-        if "x" in self.vars:
-            self.vars["x"].set(str(x))
-        if "y" in self.vars:
-            self.vars["y"].set(str(y))
 
     def _pick_point(self, x_var, y_var):
         try:

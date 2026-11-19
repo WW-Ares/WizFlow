@@ -44,8 +44,8 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self.title("%s  v%s" % (APP_NAME, APP_VERSION))
         self._set_window_icon()
         self.geometry("1200x860")
-        self.minsize(1200, 760)
-        self.resizable(False, True)
+        self.minsize(1200, 860)
+        self.resizable(False, False)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.cfg = Config()
