@@ -11,7 +11,7 @@ from pathlib import Path
 
 APP_NAME = "WizFlow"
 APP_ID = "WizFlow.Desktop"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 
 
 def app_dir() -> Path:
@@ -52,6 +52,8 @@ DEFAULTS = {
             "alpha": 1.0, "click_through": False},
     "keep_awake": True,
     "last_script": "",
+    "monitor_schemes": [],
+    "active_scheme": "",
     "multi_monitor": {
         "name": "多图标监控",
         "region": [0, 0, 0, 0],

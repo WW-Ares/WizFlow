@@ -1,12 +1,15 @@
 """区域监控页。"""
 from __future__ import annotations
 
+import copy
 import datetime
+import json
 import threading
 import time
 import tkinter as tk
+import uuid
 from pathlib import Path
-from tkinter import messagebox
+from tkinter import filedialog, messagebox, simpledialog
 
 import customtkinter as ctk
 from PIL import Image
@@ -36,6 +39,242 @@ WHEEL_STYLES = ["上滚动", "下滚动"]
 
 
 class MonitorPageMixin:
+    # ------------------------------------------------------------ 方案库
+    def _init_scheme_library(self):
+        schemes = self.cfg.get("monitor_schemes") or []
+        if not isinstance(schemes, list) or not schemes:
+            schemes = [{
+                "id": "scheme_default",
+                "name": "默认方案",
+                "profile": self.monitor_profile.to_dict(),
+                "group": normalize_monitor_group(self.cfg.get("multi_monitor", {})),
+            }]
+        self.schemes = schemes
+        active = str(self.cfg.get("active_scheme", "") or "")
+        if not any(s.get("id") == active for s in schemes):
+            active = schemes[0]["id"]
+        self.active_scheme_id = active
+        s = self._scheme_by_id(active) or schemes[0]
+        self.monitor_profile = MonitorProfile.from_dict(s.get("profile", {}))
+        self.multi_group = normalize_monitor_group(s.get("group", {}))
+        self._save_scheme_library(save=False)
+
+    def _scheme_by_id(self, sid):
+        for s in getattr(self, "schemes", []):
+            if s.get("id") == sid:
+                return s
+        return None
+
+    def _active_scheme(self):
+        return self._scheme_by_id(getattr(self, "active_scheme_id", ""))
+
+    def _update_active_scheme_memory(self):
+        s = self._active_scheme()
+        if not s:
+            return
+        s["profile"] = self.monitor_profile.to_dict()
+        s["group"] = copy.deepcopy(self.multi_group)
+
+    def _save_scheme_library(self, save=True):
+        if not getattr(self, "schemes", None):
+            return
+        self.cfg.set("monitor_schemes", self.schemes)
+        self.cfg.set("active_scheme", self.active_scheme_id)
+        self.cfg.set("monitor", self.monitor_profile.to_dict())
+        self.cfg.set("multi_monitor", self.multi_group)
+        if save:
+            self.cfg.save()
+
+    def _refresh_scheme_menu(self):
+        names = [s.get("name", "未命名") for s in getattr(self, "schemes", [])]
+        try:
+            self.scheme_menu.configure(values=names)
+            s = self._active_scheme()
+            self.scheme_var.set(s.get("name", "未命名") if s else (names[0] if names else ""))
+        except Exception:
+            pass
+
+    def _switch_scheme(self, name):
+        s = next((x for x in self.schemes if x.get("name") == name), None)
+        if not s or s.get("id") == self.active_scheme_id:
+            return
+        self._update_active_scheme_memory()
+        self.active_scheme_id = s["id"]
+        self.monitor_profile = MonitorProfile.from_dict(s.get("profile", {}))
+        self.multi_group = normalize_monitor_group(s.get("group", {}))
+        self.region_shot = None
+        self._apply_scheme_to_ui()
+        self._save_scheme_library()
+        self._toast("已切换监控方案：%s" % s.get("name"), "ok")
+
+    def _apply_scheme_to_ui(self):
+        p = self.monitor_profile
+        self.mon_name_var.set(p.name)
+        self.threshold_var.set(p.threshold)
+        try:
+            self.threshold_label.configure(text="%.2f" % p.threshold)
+        except Exception:
+            pass
+        self.poll_var.set(str(p.poll_ms))
+        self.timeout_var.set(str(p.timeout_ms))
+        self.multiscale_var.set(bool(p.multiscale))
+        mode_rev = {"screen": "屏幕", "window": "窗口", "window_gdi": "窗口(GDI)"}
+        self.capture_var.set(mode_rev.get(p.capture_mode, "屏幕"))
+        self.mon_tpl_label.configure(text=p.template or "未选择图标")
+        self.region_label.configure(text="区域：未选择")
+        hit = "脚本操作" if p.hit_action == "script" else ("键盘操作" if p.hit_action == "key" else "鼠标操作")
+        self.hit_action_var.set(hit)
+        self.key_combo_var.set(p.key_combo or "1")
+        self.key_hold_var.set(str(p.key_hold_ms))
+        self.button_var.set({"left": "左键", "right": "右键", "middle": "滚轮",
+                             "x1": "侧键X1", "x2": "侧键X2"}.get(p.click_button, "左键"))
+        style_rev = {"single": "单击", "double": "双击", "long": "长按",
+                     "wheel_up": "上滚动", "wheel_down": "下滚动"}
+        self.click_style_var.set(style_rev.get(p.click_style, "单击"))
+        mode_map = {"center": "图标中心", "fixed": "固定位置", "follow": "偏移跟随"}
+        self.click_mode_var.set(mode_map.get(p.click_mode, "图标中心"))
+        self.fixed_x_var.set(str(p.fixed_x))
+        self.fixed_y_var.set(str(p.fixed_y))
+        self.offx_var.set(str(p.offset_x))
+        self.offy_var.set(str(p.offset_y))
+        self.rand_x_var.set(str(p.random_x))
+        self.rand_y_var.set(str(p.random_y))
+        self.hold_var.set(str(p.hold_ms))
+        self.wheel_amount_var.set(str(p.wheel_amount))
+        self.wheel_interval_var.set(str(p.wheel_interval_ms))
+        rs = p.run_script or ""
+        try:
+            self.run_script_var.set(Path(rs).name if rs else "（不运行）")
+        except Exception:
+            pass
+        try:
+            self.anchor_x_var.set(str(p.script_anchor[0]) if len(p.script_anchor) == 2 else "")
+            self.anchor_y_var.set(str(p.script_anchor[1]) if len(p.script_anchor) == 2 else "")
+        except Exception:
+            pass
+        self._refresh_fixed_label()
+        self._refresh_window_label()
+        self._refresh_region_label()
+        self._on_hit_action_change(initial=True)
+        self._on_click_mode_change(initial=True)
+        self._on_mouse_button_change(initial=True)
+        self._refresh_multi_label()
+        self._refresh_monitor_script_menu()
+
+    def _ask_scheme_name(self, title, initial=""):
+        return simpledialog.askstring(title, "方案名称：", initialvalue=initial, parent=self)
+
+    def _new_scheme(self):
+        name = self._ask_scheme_name("新建方案", "新方案")
+        if not name:
+            return
+        self._update_active_scheme_memory()
+        scheme = {"id": "scheme_" + uuid.uuid4().hex[:8], "name": name.strip(),
+                  "profile": MonitorProfile().to_dict(),
+                  "group": normalize_monitor_group({})}
+        self.schemes.append(scheme)
+        self.active_scheme_id = scheme["id"]
+        self.monitor_profile = MonitorProfile.from_dict(scheme["profile"])
+        self.multi_group = normalize_monitor_group(scheme["group"])
+        self._apply_scheme_to_ui()
+        self._refresh_scheme_menu()
+        self._save_scheme_library()
+        self._toast("已新建方案：%s" % name, "ok")
+
+    def _copy_scheme(self):
+        s = self._active_scheme()
+        if not s:
+            return
+        self._update_active_scheme_memory()
+        name = self._ask_scheme_name("复制方案", s.get("name", "方案") + " 副本")
+        if not name:
+            return
+        scheme = {"id": "scheme_" + uuid.uuid4().hex[:8], "name": name.strip(),
+                  "profile": copy.deepcopy(s.get("profile", {})),
+                  "group": copy.deepcopy(s.get("group", {}))}
+        self.schemes.append(scheme)
+        self.active_scheme_id = scheme["id"]
+        self.monitor_profile = MonitorProfile.from_dict(scheme["profile"])
+        self.multi_group = normalize_monitor_group(scheme["group"])
+        self._apply_scheme_to_ui()
+        self._refresh_scheme_menu()
+        self._save_scheme_library()
+        self._toast("已复制方案：%s" % name, "ok")
+
+    def _rename_scheme(self):
+        s = self._active_scheme()
+        if not s:
+            return
+        name = self._ask_scheme_name("重命名方案", s.get("name", ""))
+        if not name:
+            return
+        s["name"] = name.strip()
+        self._refresh_scheme_menu()
+        self._save_scheme_library()
+        self._toast("方案已重命名", "ok")
+
+    def _delete_scheme(self):
+        if len(self.schemes) <= 1:
+            self._toast("至少保留一个监控方案", "warn")
+            return
+        s = self._active_scheme()
+        if not s:
+            return
+        if not messagebox.askyesno("删除方案", "确定删除「%s」？" % s.get("name")):
+            return
+        self.schemes = [x for x in self.schemes if x.get("id") != s.get("id")]
+        self.active_scheme_id = self.schemes[0]["id"]
+        t = self._active_scheme()
+        self.monitor_profile = MonitorProfile.from_dict(t.get("profile", {}))
+        self.multi_group = normalize_monitor_group(t.get("group", {}))
+        self._apply_scheme_to_ui()
+        self._refresh_scheme_menu()
+        self._save_scheme_library()
+        self._toast("方案已删除", "ok")
+
+    def _export_scheme(self):
+        s = self._active_scheme()
+        if not s:
+            return
+        self._update_active_scheme_memory()
+        path = filedialog.asksaveasfilename(title="导出监控方案", defaultextension=".json",
+                                            filetypes=[("JSON", "*.json")],
+                                            initialfile="%s.json" % s.get("name", "scheme"))
+        if not path:
+            return
+        try:
+            Path(path).write_text(json.dumps(s, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._toast("方案已导出：%s" % Path(path).name, "ok")
+        except Exception as exc:
+            self._toast("导出失败：%s" % exc, "error")
+
+    def _import_scheme(self):
+        path = filedialog.askopenfilename(title="导入监控方案",
+                                          filetypes=[("JSON", "*.json")])
+        if not path:
+            return
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        except Exception as exc:
+            self._toast("导入失败：%s" % exc, "error")
+            return
+        if not isinstance(data, dict) or not isinstance(data.get("profile", {}), dict):
+            self._toast("文件格式不正确", "warn")
+            return
+        name = data.get("name") or Path(path).stem
+        scheme = {"id": "scheme_" + uuid.uuid4().hex[:8], "name": name,
+                  "profile": data.get("profile", {}),
+                  "group": data.get("group", {})}
+        self._update_active_scheme_memory()
+        self.schemes.append(scheme)
+        self.active_scheme_id = scheme["id"]
+        self.monitor_profile = MonitorProfile.from_dict(scheme["profile"])
+        self.multi_group = normalize_monitor_group(scheme["group"])
+        self._apply_scheme_to_ui()
+        self._refresh_scheme_menu()
+        self._save_scheme_library()
+        self._toast("已导入方案：%s" % name, "ok")
+
     def _build_monitor_page(self):
         outer, page = self._new_page()
         self.pages["monitor"] = outer
@@ -43,10 +282,28 @@ class MonitorPageMixin:
         page.grid_columnconfigure(1, weight=2, uniform="mon")
         page.grid_rowconfigure(0, weight=1)
         page.grid_rowconfigure(1, weight=1)
+        self._init_scheme_library()
         self.region_shot = None
 
         region = Card(page, "监控区域", "框选后抓取图标")
         region.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 6))
+        scheme_row = ctk.CTkFrame(region.body, fg_color="transparent")
+        scheme_row.pack(fill="x", pady=(0, 6))
+        label(scheme_row, "方案", 10).pack(side="left")
+        self.scheme_var = tk.StringVar(value="")
+        self.scheme_menu = ctk.CTkOptionMenu(scheme_row, variable=self.scheme_var, values=["默认方案"],
+                                             width=130, height=26, fg_color=theme.CARD2,
+                                             button_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
+                                             command=self._switch_scheme)
+        self.scheme_menu.pack(side="left", padx=4)
+        for text, cmd in (("新建", self._new_scheme), ("复制", self._copy_scheme),
+                          ("改名", self._rename_scheme), ("删除", self._delete_scheme),
+                          ("导入", self._import_scheme), ("导出", self._export_scheme)):
+            ctk.CTkButton(scheme_row, text=text, width=44, height=26, fg_color=theme.CARD2,
+                          hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
+                          command=cmd).pack(side="left", padx=2)
+        self._refresh_scheme_menu()
+
         caprow = ctk.CTkFrame(region.body, fg_color="transparent")
         caprow.pack(fill="x", pady=(0, 6))
         label(caprow, "捕获方式", 10).pack(side="left")
@@ -75,7 +332,6 @@ class MonitorPageMixin:
 
         self.region_label = label(region.body, "区域：未选择", 10, theme.TEXT)
         self.region_label.pack(anchor="w", pady=(10, 2))
-        self.multi_group = normalize_monitor_group(self.cfg.get("multi_monitor", {}))
         self.multi_label = label(region.body, "", 9, theme.PURPLE)
         self.multi_label.pack(anchor="w", pady=(0, 6))
         self._refresh_multi_label()
@@ -499,6 +755,11 @@ class MonitorPageMixin:
     def _save_multi_group(self, group):
         self.multi_group = normalize_monitor_group(group)
         self.cfg.set("multi_monitor", self.multi_group)
+        try:
+            self._update_active_scheme_memory()
+            self.cfg.set("monitor_schemes", self.schemes)
+        except Exception:
+            pass
         self.cfg.save()
         self._refresh_multi_label()
         self._toast("多图标规则已保存：%d 条规则" % len(self.multi_group.get("rules", [])), "ok")
@@ -530,6 +791,10 @@ class MonitorPageMixin:
             self.script_path = new_script_path()
             self._refresh_scripts(select=self.script_path)
         ev = group_to_event(g)
+        s = self._active_scheme()
+        if s:
+            ev["scheme_id"] = s.get("id", "")
+            ev["scheme_name"] = s.get("name", "")
         self._add_event(ev)
         self._save_multi_group(g)
         if not self._save_script(silent=True):
@@ -830,6 +1095,12 @@ class MonitorPageMixin:
         except Exception:
             pass
         self.cfg.set("monitor", self.monitor_profile.to_dict())
+        try:
+            self._update_active_scheme_memory()
+            self.cfg.set("monitor_schemes", self.schemes)
+            self.cfg.set("active_scheme", self.active_scheme_id)
+        except Exception:
+            pass
         self.cfg.save()
 
     def _test_match(self):
@@ -916,6 +1187,10 @@ class MonitorPageMixin:
             self.script_path = new_script_path()
             self._refresh_scripts(select=self.script_path)
         ev = self.monitor_profile.to_event()
+        s = self._active_scheme()
+        if s:
+            ev["scheme_id"] = s.get("id", "")
+            ev["scheme_name"] = s.get("name", "")
         self._add_event(ev)
         if not self._save_script(silent=True):
             return
