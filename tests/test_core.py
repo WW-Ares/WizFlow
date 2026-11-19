@@ -320,13 +320,91 @@ def test_parsec_bundle():
     assert "installed" in st and "active" in st, st
     return "driver files ok, installed=%s active=%s" % (st["installed"], st["active"])
 
+
+
+def test_wheel_action():
+    tmp = Path(tempfile.mkdtemp(prefix="kmg_test_"))
+    frame = make_frame()
+    tpl_path = tmp / "icon.png"
+    save_png(frame[60:91, 80:121].copy(), tpl_path)
+    origin = screen.grab
+    origin2 = player_mod.grab
+    old_wheel = player_mod.mouse_wheel
+    calls = []
+    screen.grab = lambda rect: frame.copy()
+    player_mod.grab = screen.grab
+    player_mod.mouse_wheel = lambda d: calls.append(d)
+    try:
+        p = Player(TemplateMatcher(), lambda t, pr: None, lambda r: None)
+        p.dry_run = False
+        p._move = lambda pos: None
+        ev = {"type": "monitor", "name": "wheel", "region": [0, 0, 200, 150],
+              "template": str(tpl_path), "threshold": 0.9, "poll_ms": 30,
+              "timeout_ms": 1000, "multiscale": False, "hit_action": "mouse",
+              "click_button": "middle", "click_style": "wheel_down", "wheel_amount": 4,
+              "wheel_interval_ms": 0, "click_mode": "center"}
+        assert p.start([ev], 1, 4.0, script_dir=tmp)
+        wait_player(p)
+        assert calls == [-120, -120, -120, -120], calls
+    finally:
+        screen.grab = origin
+        player_mod.grab = origin2
+        player_mod.mouse_wheel = old_wheel
+    return "wheel down x4 ok"
+
+
+def test_wheel_multi_action():
+    from core.actions import ActionContext, execute_actions
+    from core.screen import MatchResult
+    import core.actions as actions_mod
+    calls = []
+    old = actions_mod.mouse_wheel
+    actions_mod.mouse_wheel = lambda d: calls.append(d)
+    try:
+        class FP:
+            dry_run = False
+            _pressed_buttons = set()
+            _stop = player_mod.threading.Event()
+            _paused = player_mod.threading.Event()
+            def _wait(self, ms):
+                return True
+        ctx = ActionContext("r", MatchResult(1.0, 100, 100, 20, 20), (0, 0, 200, 200), None, Path("."), {})
+        r = execute_actions(FP(), [{"type": "wheel", "direction": "up", "amount": 2,
+                                    "interval_ms": 0, "position": "center"}], ctx)
+        assert r == "ok" and calls == [120, 120], (r, calls)
+    finally:
+        actions_mod.mouse_wheel = old
+    return "multi-icon wheel ok"
+
+
+def test_keygrab_names():
+    from core.keygrab import combo_text, vk_name
+    assert vk_name(0x09) == "tab" and vk_name(0x41) == "a" and vk_name(0x70) == "f1"
+    assert combo_text({0x12, 0x09}, 0x09) == "alt+tab"
+    assert combo_text({0x11, 0x41}, 0x41) == "ctrl+a"
+    return "alt+tab / ctrl+a ok"
+
+
+def test_monitor_profile_wheel_roundtrip():
+    from core.monitor import MonitorProfile
+    p = MonitorProfile.from_dict({"click_style": "wheel", "wheel_dir": "down",
+                                  "wheel_amount": 7, "wheel_interval_ms": 25})
+    d = p.to_dict()
+    assert d["click_style"] == "wheel_down" and d["click_button"] == "middle", d
+    assert d["wheel_amount"] == 7 and d["wheel_interval_ms"] == 25, d
+    p2 = MonitorProfile.from_dict({"click_button": "middle", "click_style": "single"})
+    assert p2.click_button == "middle" and p2.click_style == "single", p2
+    return "profile wheel roundtrip/migration ok"
+
 def main():
     tests = [test_monitor_hit_and_anchor, test_monitor_timeout, test_monitor_click_modes,
              test_monitor_key_action, test_hotkey_parse,
              test_recorder_events, test_monitor_run_script_sync, test_keepalive_integrated,
              test_crop_match,
              test_preview_conversion,
-             test_event_describe, test_wait_and_script_node, test_parsec_bundle]
+             test_event_describe, test_wait_and_script_node, test_parsec_bundle,
+             test_wheel_action, test_wheel_multi_action, test_keygrab_names,
+             test_monitor_profile_wheel_roundtrip]
     failed = 0
     for fn in tests:
         try:

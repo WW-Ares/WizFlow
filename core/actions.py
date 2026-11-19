@@ -15,7 +15,7 @@ from .log import log
 from .screen import MatchResult
 from .script import ScriptDoc
 from .winapi import (cursor_pos, key_down, key_up, mouse_down, mouse_up,
-                     set_cursor_pos)
+                     mouse_wheel, set_cursor_pos)
 
 
 @dataclass
@@ -76,6 +76,29 @@ def _do_click(player, action, match):
         if not player.dry_run:
             mouse_up(button)
         if i < clicks - 1 and not player._wait(interval):
+            return "stopped"
+    return "ok"
+
+
+def _do_wheel(player, action, match):
+    direction = str(action.get("direction", "up")).lower()
+    amount = max(1, _num(action.get("amount", 3), 3))
+    interval = max(0, _num(action.get("interval_ms", 60), 60))
+    delta = 120 if direction == "up" else -120
+    tx, ty = resolve_position(action, match)
+    if not player.dry_run:
+        set_cursor_pos(tx, ty)
+    for _i in range(amount):
+        if player._stop.is_set():
+            return "stopped"
+        if player._paused.is_set():
+            while player._paused.is_set() and not player._stop.is_set():
+                time.sleep(0.05)
+            if player._stop.is_set():
+                return "stopped"
+        if not player.dry_run:
+            mouse_wheel(delta)
+        if interval and not player._wait(interval):
             return "stopped"
     return "ok"
 
@@ -218,6 +241,8 @@ def execute_actions(player, actions, ctx: ActionContext) -> str:
         try:
             if typ == "click":
                 r = _do_click(player, action, ctx.match)
+            elif typ == "wheel":
+                r = _do_wheel(player, action, ctx.match)
             elif typ == "long_press":
                 r = _do_long_press(player, action, ctx.match)
             elif typ == "move":

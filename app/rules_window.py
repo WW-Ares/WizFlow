@@ -21,6 +21,7 @@ from .widgets import Card, ImagePanel, entry, label
 
 ACTION_TYPES = [
     ("click", "单击 / 双击 / 长按"),
+    ("wheel", "滚轮滚动"),
     ("key", "按键"),
     ("script", "运行脚本"),
     ("wait", "等待"),
@@ -165,6 +166,12 @@ class ActionDialog(ctk.CTkToplevel):
                         BTN_REV.get(a.get("button", "left"), "左键"))
             self._field("hold_ms", "按住时长(ms)", a.get("hold_ms", 1000), 100)
             self._position_fields(a)
+        elif t == "wheel":
+            self._combo("direction", "方向", ["向上", "向下"],
+                        "向下" if str(a.get("direction", "up")) == "down" else "向上")
+            self._field("amount", "滚动格数", a.get("amount", 3), 80)
+            self._field("interval_ms", "每格间隔(ms)", a.get("interval_ms", 60), 80)
+            self._position_fields(a)
         elif t == "key":
             self._field("keys", "按键", a.get("keys", "1"), 180)
             self._field("hold_ms", "按住时长(ms)", a.get("hold_ms", 40), 80)
@@ -225,6 +232,11 @@ class ActionDialog(ctk.CTkToplevel):
             out.update(self._pos_dict())
         elif t == "long_press":
             out["hold_ms"] = int(float(self._v("hold_ms", 1000) or 1000))
+            out.update(self._pos_dict())
+        elif t == "wheel":
+            out["direction"] = "down" if self._v("direction", "向上") == "向下" else "up"
+            out["amount"] = max(1, int(float(self._v("amount", 3) or 3)))
+            out["interval_ms"] = max(0, int(float(self._v("interval_ms", 60) or 60)))
             out.update(self._pos_dict())
         elif t == "key":
             out["keys"] = self._v("keys", "")

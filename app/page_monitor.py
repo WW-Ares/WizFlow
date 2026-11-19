@@ -26,8 +26,10 @@ from .widgets import Card, ImagePanel, entry, label
 
 
 BTN_MAP = {"左键": "left", "右键": "right", "中键": "middle", "侧键X1": "x1", "侧键X2": "x2"}
-STYLE_MAP = {"单击": "single", "双击": "double", "长按": "long"}
+STYLE_MAP = {"单击": "single", "双击": "double", "长按": "long", "滚轮": "wheel"}
 MODE_MAP = {"图标中心": "center", "固定位置": "fixed", "偏移跟随": "follow"}
+CLICK_STYLES = ["单击", "双击", "长按"]
+WHEEL_STYLES = ["上滚动", "下滚动"]
 
 
 class MonitorPageMixin:
@@ -137,18 +139,21 @@ class MonitorPageMixin:
                       command=self._sync_profile).grid(row=r, column=0, columnspan=2,
                                                        sticky="w", pady=(6, 2))
         r += 1
-        BTN_DISP = {"左键": "left", "右键": "right", "中键": "middle", "侧键X1": "x1", "侧键X2": "x2"}
+        BTN_DISP = {"左键": "left", "右键": "right", "滚轮": "middle", "侧键X1": "x1", "侧键X2": "x2"}
         BTN_REV = {v: k for k, v in BTN_DISP.items()}
-        STYLE_DISP = {"单击": "single", "双击": "double", "长按": "long"}
+        STYLE_DISP = {"单击": "single", "双击": "double", "长按": "long",
+                      "上滚动": "wheel_up", "下滚动": "wheel_down"}
         STYLE_REV = {v: k for k, v in STYLE_DISP.items()}
+        CLICK_STYLES = ["单击", "双击", "长按"]
+        WHEEL_STYLES = ["上滚动", "下滚动"]
         MODE_DISP = {"图标中心": "center", "固定位置": "fixed", "偏移跟随": "follow"}
         MODE_REV = {v: k for k, v in MODE_DISP.items()}
 
         label(body, "命中后动作", 10).grid(row=r, column=0, sticky="w", pady=3)
         self.hit_action_var = tk.StringVar(
-            value="脚本" if self.monitor_profile.hit_action == "script" else ("键盘按键" if self.monitor_profile.hit_action == "key" else "鼠标点击"))
+            value="脚本操作" if self.monitor_profile.hit_action == "script" else ("键盘操作" if self.monitor_profile.hit_action == "key" else "鼠标操作"))
         ctk.CTkOptionMenu(body, variable=self.hit_action_var,
-                          values=["鼠标点击", "键盘按键", "脚本"], width=140, height=28,
+                          values=["鼠标操作", "键盘操作", "脚本操作"], width=140, height=28,
                           fg_color=theme.CARD2, button_color=theme.LINE,
                           command=lambda _v: self._on_hit_action_change()).grid(
             row=r, column=1, sticky="w", pady=3)
@@ -161,16 +166,33 @@ class MonitorPageMixin:
         row1.pack(fill="x", padx=8, pady=(8, 2))
         label(row1, "鼠标键", 9).pack(side="left")
         self.button_var = tk.StringVar(value=BTN_REV.get(self.monitor_profile.click_button, "左键"))
-        ctk.CTkOptionMenu(row1, variable=self.button_var, values=list(BTN_DISP.keys()),
-                          width=70, height=26, fg_color=theme.CARD2, button_color=theme.LINE,
-                          font=(theme.FONT, theme.fs(9)),
-                          command=lambda _v: self._sync_profile()).pack(side="left", padx=4)
-        label(row1, "点击方式", 9).pack(side="left", padx=(8, 0))
+        self.button_menu = ctk.CTkOptionMenu(row1, variable=self.button_var, values=list(BTN_DISP.keys()),
+                                             width=70, height=26, fg_color=theme.CARD2,
+                                             button_color=theme.LINE,
+                                             font=(theme.FONT, theme.fs(9)),
+                                             command=lambda _v: self._on_mouse_button_change())
+        self.button_menu.pack(side="left", padx=4)
+        label(row1, "操作方式", 9).pack(side="left", padx=(8, 0))
         self.click_style_var = tk.StringVar(value=STYLE_REV.get(self.monitor_profile.click_style, "单击"))
-        ctk.CTkOptionMenu(row1, variable=self.click_style_var, values=list(STYLE_DISP.keys()),
-                          width=66, height=26, fg_color=theme.CARD2, button_color=theme.LINE,
-                          font=(theme.FONT, theme.fs(9)),
-                          command=lambda _v: self._sync_profile()).pack(side="left", padx=4)
+        self.click_style_menu = ctk.CTkOptionMenu(row1, variable=self.click_style_var,
+                                                  values=list(STYLE_DISP.keys()), width=76, height=26,
+                                                  fg_color=theme.CARD2, button_color=theme.LINE,
+                                                  font=(theme.FONT, theme.fs(9)),
+                                                  command=lambda _v: self._on_click_style_change())
+        self.click_style_menu.pack(side="left", padx=4)
+
+        self.wheel_frame = ctk.CTkFrame(mf, fg_color="transparent")
+        self.wheel_frame.pack(fill="x", padx=8, pady=2)
+        label(self.wheel_frame, "格数", 9).pack(side="left")
+        self.wheel_amount_var = tk.StringVar(value=str(self.monitor_profile.wheel_amount))
+        we = entry(self.wheel_frame, width=48, textvariable=self.wheel_amount_var)
+        we.pack(side="left", padx=2)
+        we.bind("<FocusOut>", lambda _e: self._sync_profile())
+        label(self.wheel_frame, "间隔(ms)", 9).pack(side="left", padx=(8, 0))
+        self.wheel_interval_var = tk.StringVar(value=str(self.monitor_profile.wheel_interval_ms))
+        wi = entry(self.wheel_frame, width=52, textvariable=self.wheel_interval_var)
+        wi.pack(side="left", padx=2)
+        wi.bind("<FocusOut>", lambda _e: self._sync_profile())
 
         row2 = ctk.CTkFrame(mf, fg_color="transparent")
         row2.pack(fill="x", padx=8, pady=2)
@@ -230,7 +252,7 @@ class MonitorPageMixin:
         kf = self.key_frame
         krow = ctk.CTkFrame(kf, fg_color="transparent")
         krow.pack(fill="x", padx=8, pady=8)
-        label(krow, "键盘按键", 9).pack(side="left")
+        label(krow, "键盘操作", 9).pack(side="left")
         self.key_combo_var = tk.StringVar(value=self.monitor_profile.key_combo or "1")
         ke = entry(krow, width=150, textvariable=self.key_combo_var)
         ke.pack(side="left", padx=4)
@@ -253,7 +275,7 @@ class MonitorPageMixin:
         sf = self.script_frame
         srow = ctk.CTkFrame(sf, fg_color="transparent")
         srow.pack(fill="x", padx=8, pady=8)
-        label(srow, "脚本", 9).pack(side="left")
+        label(srow, "脚本操作", 9).pack(side="left")
         self.run_script_var = tk.StringVar(value="（不运行）")
         self.run_script_menu = ctk.CTkOptionMenu(srow, variable=self.run_script_var,
                                                  values=["（不运行）"], width=150, height=26,
@@ -278,6 +300,7 @@ class MonitorPageMixin:
         self._refresh_monitor_script_menu()
         self._on_hit_action_change(initial=True)
         self._on_click_mode_change(initial=True)
+        self._on_mouse_button_change(initial=True)
 
 
         ctk.CTkFrame(body, height=1, fg_color=theme.LINE).grid(row=r, column=0, columnspan=2,
@@ -546,9 +569,9 @@ class MonitorPageMixin:
         self.mouse_frame.grid_remove()
         self.key_frame.grid_remove()
         self.script_frame.grid_remove()
-        if action == "脚本":
+        if action == "脚本操作":
             self.script_frame.grid()
-        elif action == "键盘按键":
+        elif action == "键盘操作":
             self.key_frame.grid()
         else:
             self.mouse_frame.grid()
@@ -594,6 +617,36 @@ class MonitorPageMixin:
             pass
         self._sync_profile()
 
+    def _on_mouse_button_change(self, initial=False):
+        if not hasattr(self, "click_style_menu"):
+            return
+        is_wheel = self.button_var.get() == "滚轮"
+        values = CLICK_STYLES + WHEEL_STYLES if is_wheel else CLICK_STYLES
+        self.click_style_menu.configure(values=values)
+        if self.click_style_var.get() not in values:
+            self.click_style_var.set(values[0])
+        if self.click_style_var.get() in WHEEL_STYLES:
+            self.wheel_frame.pack(fill="x", padx=8, pady=2)
+        else:
+            self.wheel_frame.pack_forget()
+        if not initial:
+            self._sync_profile()
+
+    def _on_click_style_change(self, initial=False):
+        if not hasattr(self, "wheel_frame"):
+            return
+        style = self.click_style_var.get()
+        if style in WHEEL_STYLES:
+            self.button_var.set("滚轮")
+            self.click_style_menu.configure(values=CLICK_STYLES + WHEEL_STYLES)
+            self.wheel_frame.pack(fill="x", padx=8, pady=2)
+        else:
+            values = CLICK_STYLES + WHEEL_STYLES if self.button_var.get() == "滚轮" else CLICK_STYLES
+            self.click_style_menu.configure(values=values)
+            self.wheel_frame.pack_forget()
+        if not initial:
+            self._sync_profile()
+
     def _on_click_mode_change(self, initial=False):
         if not hasattr(self, "fixed_frame"):
             return
@@ -613,9 +666,9 @@ class MonitorPageMixin:
             self.monitor_profile.poll_ms = max(20, int(float(self.poll_var.get())))
             self.monitor_profile.timeout_ms = max(0, int(float(self.timeout_var.get())))
             self.monitor_profile.multiscale = bool(self.multiscale_var.get())
-            if self.hit_action_var.get() == "脚本":
+            if self.hit_action_var.get() == "脚本操作":
                 hit = "script"
-            elif self.hit_action_var.get() == "键盘按键":
+            elif self.hit_action_var.get() == "键盘操作":
                 hit = "key"
             else:
                 hit = "mouse"
@@ -626,6 +679,10 @@ class MonitorPageMixin:
             self.monitor_profile.click_button = BTN_MAP.get(self.button_var.get(), "left")
             self.monitor_profile.click_style = STYLE_MAP.get(self.click_style_var.get(), "single")
             self.monitor_profile.click_mode = MODE_MAP.get(self.click_mode_var.get(), "center")
+            self.monitor_profile.wheel_dir = "up" if self.monitor_profile.click_style == "wheel_up" else (
+                "down" if self.monitor_profile.click_style == "wheel_down" else self.monitor_profile.wheel_dir)
+            self.monitor_profile.wheel_amount = max(1, int(float(self.wheel_amount_var.get() or 3)))
+            self.monitor_profile.wheel_interval_ms = max(0, int(float(self.wheel_interval_var.get() or 60)))
             self.monitor_profile.fixed_x = int(float(self.fixed_x_var.get() or 0))
             self.monitor_profile.fixed_y = int(float(self.fixed_y_var.get() or 0))
             self.monitor_profile.offset_x = int(float(self.offx_var.get() or 0))

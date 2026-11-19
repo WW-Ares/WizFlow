@@ -26,6 +26,9 @@ class MonitorProfile:
     key_hold_ms: int = 40
     click_style: str = "single"
     click_mode: str = "center"
+    wheel_dir: str = "up"
+    wheel_amount: int = 3
+    wheel_interval_ms: int = 60
     fixed_x: int = 0
     fixed_y: int = 0
     click_sync: bool = True
@@ -41,6 +44,14 @@ class MonitorProfile:
     @classmethod
     def from_dict(cls, d: dict) -> "MonitorProfile":
         d = d or {}
+        button = str(d.get("click_button", "left"))
+        style = str(d.get("click_style", "single"))
+        # v1.1.2 的 wheel 写法合并为 滚轮键 + 上/下滚动
+        if style == "wheel":
+            style = "wheel_up" if str(d.get("wheel_dir", "up")).lower() != "down" else "wheel_down"
+            button = "middle"
+        elif style in ("wheel_up", "wheel_down"):
+            button = "middle"
         return cls(
             name=str(d.get("name", "监控1")),
             region=[int(v) for v in (d.get("region") or [0, 0, 0, 0])][:4],
@@ -52,12 +63,15 @@ class MonitorProfile:
             hit_action=str(d.get("hit_action", "mouse")),
             key_combo=str(d.get("key_combo", "1")),
             key_hold_ms=max(1, int(d.get("key_hold_ms", 40))),
-            click_style=str(d.get("click_style", "single")),
+            click_style=style,
             click_mode=str(d.get("click_mode", "center")),
+            wheel_dir=str(d.get("wheel_dir", "up")),
+            wheel_amount=max(1, int(d.get("wheel_amount", 3))),
+            wheel_interval_ms=max(0, int(d.get("wheel_interval_ms", 60))),
             fixed_x=int(d.get("fixed_x", 0)),
             fixed_y=int(d.get("fixed_y", 0)),
             click_sync=bool(d.get("click_sync", True)),
-            click_button=str(d.get("click_button", "left")),
+            click_button=button,
             offset_x=int(d.get("offset_x", 0)),
             offset_y=int(d.get("offset_y", 0)),
             random_x=int(d.get("random_x", 0)),
@@ -74,7 +88,10 @@ class MonitorProfile:
             "timeout_ms": self.timeout_ms, "multiscale": self.multiscale,
             "hit_action": self.hit_action, "key_combo": self.key_combo,
             "key_hold_ms": self.key_hold_ms, "click_style": self.click_style,
-            "click_mode": self.click_mode, "fixed_x": self.fixed_x, "fixed_y": self.fixed_y,
+            "click_mode": self.click_mode,
+            "wheel_dir": self.wheel_dir, "wheel_amount": self.wheel_amount,
+            "wheel_interval_ms": self.wheel_interval_ms,
+            "fixed_x": self.fixed_x, "fixed_y": self.fixed_y,
             "click_sync": self.click_sync, "click_button": self.click_button,
             "offset_x": self.offset_x, "offset_y": self.offset_y,
             "random_x": self.random_x, "random_y": self.random_y, "hold_ms": self.hold_ms,

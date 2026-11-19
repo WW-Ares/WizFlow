@@ -6,6 +6,7 @@ from typing import Callable
 
 import customtkinter as ctk
 
+from core.keygrab import MOD_VKS, KeyGrabber
 from . import theme
 
 
@@ -46,17 +47,70 @@ class Pill(ctk.CTkLabel):
 
 
 class KeyCaptureEntry(ctk.CTkEntry):
-    """点进去按键，直接填热键名。"""
+    """点进去按键，直接填热键名；聚焦期间拦截系统快捷键。"""
 
     def __init__(self, master, var: tk.StringVar, on_change: Callable[[str], None] | None = None, **kwargs):
         super().__init__(master, textvariable=var, justify="center", **kwargs)
         self.var = var
         self.on_change = on_change
+        self.grabber: KeyGrabber | None = None
+        self._poll_id = None
+        self._main = 0
+        self._result = ""
+        self.bind("<FocusIn>", self._start)
+        self.bind("<FocusOut>", lambda _e: self._stop())
         self.bind("<KeyPress>", self._on_key)
-        self.bind("<FocusIn>", lambda _e: self.configure(border_color=theme.ACCENT))
-        self.bind("<FocusOut>", lambda _e: self.configure(border_color=theme.LINE))
 
+    def _start(self, _e=None):
+        self.configure(border_color=theme.ACCENT)
+        self._stop()
+        g = KeyGrabber()
+        if g.start():
+            self.grabber = g
+            self._main = 0
+            self._result = ""
+            self._poll_id = self.after(25, self._poll)
+        else:
+            self.grabber = None
+
+    def _poll(self):
+        if self.grabber is None:
+            return
+        for kind, vk, combo in self.grabber.drain():
+            if vk == 0x1B and kind == "down":
+                self._stop()
+                self.configure(border_color=theme.LINE)
+                return
+            if kind == "down":
+                if vk in MOD_VKS:
+                    continue
+                self._main = vk
+                self._result = combo
+                self.var.set(combo)
+            elif kind == "up" and self._main == vk and self._result:
+                self.var.set(self._result)
+                if self.on_change:
+                    self.on_change(self._result)
+                self._stop()
+                self.configure(border_color=theme.LINE)
+                return
+        self._poll_id = self.after(25, self._poll)
+
+    def _stop(self):
+        if self._poll_id:
+            try:
+                self.after_cancel(self._poll_id)
+            except Exception:
+                pass
+            self._poll_id = None
+        if self.grabber is not None:
+            self.grabber.stop()
+            self.grabber = None
+
+    # 钩子不可用时的兜底
     def _on_key(self, event):
+        if self.grabber is not None:
+            return "break"
         key = event.keysym
         name = None
         if key.startswith("F") and key[1:].isdigit():

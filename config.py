@@ -11,7 +11,7 @@ from pathlib import Path
 
 APP_NAME = "WizFlow"
 APP_ID = "WizFlow.Desktop"
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 
 
 def app_dir() -> Path:
@@ -77,6 +77,9 @@ DEFAULTS = {
         "offset_x": 0,
         "offset_y": 0,
         "hold_ms": 40,
+        "wheel_dir": "up",
+        "wheel_amount": 3,
+        "wheel_interval_ms": 60,
         "run_script": "",
         "script_anchor": [],
     },

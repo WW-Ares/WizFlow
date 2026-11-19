@@ -1,8 +1,9 @@
-"""录制单键或组合键。"""
+"""录制单键或组合键（录制期间拦截系统快捷键）。"""
 from __future__ import annotations
 
 import customtkinter as ctk
 
+from core.keygrab import MOD_VKS, KeyGrabber
 from . import theme
 from .widgets import label
 from .window_icon import apply_window_icon
@@ -29,35 +30,78 @@ class KeyRecordDialog(ctk.CTkToplevel):
         self.mods = set()
         self.main = None
         self.result = ""
+        self.grabber: KeyGrabber | None = None
+        self._done = False
+        self._poll_id = None
+        self._timeout_id = None
         self.title("录制按键")
-        self.geometry("540x300")
+        self.geometry("560x330")
         self.resizable(False, False)
         self.configure(fg_color=theme.BG)
         self.transient(master)
         apply_window_icon(self)
         self.protocol("WM_DELETE_WINDOW", self._cancel)
-        self.bind("<KeyPress>", self._on_press)
-        self.bind("<KeyRelease>", self._on_release)
         label(self, "录制键盘按键", 16, theme.TEXT).pack(anchor="w", padx=20, pady=(16, 2))
-        label(self, "点击下方按钮后直接按键；支持 Ctrl/Alt/Shift/Win 组合键。",
+        label(self, "录制时会拦截系统快捷键；Alt+Tab / Win 等不会切换窗口。",
               10, theme.MUTED).pack(anchor="w", padx=20)
         self.preview = ctk.CTkLabel(self, text=initial or "等待按键…",
                                     font=(theme.MONO, theme.fs(22), "bold"),
                                     fg_color=theme.BG2, corner_radius=10, height=100)
-        self.preview.pack(fill="x", padx=20, pady=18)
-        label(self, "按 Esc 取消；松开主键即完成录制。", 9).pack(anchor="w", padx=20)
+        self.preview.pack(fill="x", padx=20, pady=16)
+        self.status = label(self, "正在安装键盘拦截…", 9, theme.WARN)
+        self.status.pack(anchor="w", padx=20)
+        label(self, "按 Esc 取消；松开主键即完成录制；15 秒无操作自动取消。",
+              9, theme.MUTED).pack(anchor="w", padx=20, pady=(2, 0))
         ctk.CTkButton(self, text="取消", width=90, height=34, fg_color=theme.CARD2,
                       hover_color=theme.LINE, command=self._cancel).pack(side="right", padx=20, pady=14)
-        self.after(120, self._focus)
+        self.after(140, self._start_grab)
 
-    def _focus(self):
+    def _start_grab(self):
+        if self._done:
+            return
         try:
             self.lift()
             self.focus_force()
             self.grab_set()
         except Exception:
             pass
+        g = KeyGrabber()
+        if g.start():
+            self.grabber = g
+            self.status.configure(text="已拦截系统快捷键，请按键…", text_color=theme.OK)
+            self._poll_id = self.after(25, self._poll)
+            self._timeout_id = self.after(15000, self._timeout)
+        else:
+            self.status.configure(text="键盘拦截不可用，退回普通录制：%s" % g.error,
+                                  text_color=theme.WARN)
+            self.bind("<KeyPress>", self._on_press_tk)
+            self.bind("<KeyRelease>", self._on_release_tk)
 
+    def _poll(self):
+        if self._done or self.grabber is None:
+            return
+        for kind, vk, combo in self.grabber.drain():
+            if vk == 0x1B and kind == "down":
+                self._cancel()
+                return
+            if kind == "down":
+                if vk in MOD_VKS:
+                    self.preview.configure(text=combo + " + …")
+                    continue
+                self.main = vk
+                self.result = combo
+                self.preview.configure(text=combo)
+            elif kind == "up" and self.main == vk and self.result:
+                self._finish(self.result)
+                return
+        self._poll_id = self.after(25, self._poll)
+
+    def _timeout(self):
+        if not self._done:
+            self.status.configure(text="15 秒未检测到按键，已取消", text_color=theme.WARN)
+            self._cancel()
+
+    # ------------------------------------------------------------ 兜底（钩子不可用）
     def _name_for(self, event):
         ks = event.keysym
         if ks in _MODS:
@@ -73,7 +117,7 @@ class KeyRecordDialog(ctk.CTkToplevel):
         except Exception:
             return None
 
-    def _on_press(self, event):
+    def _on_press_tk(self, event):
         if event.keysym == "Escape":
             self._cancel()
             return "break"
@@ -89,7 +133,7 @@ class KeyRecordDialog(ctk.CTkToplevel):
             self.preview.configure(text=self.result)
         return "break"
 
-    def _on_release(self, event):
+    def _on_release_tk(self, event):
         if self.main and event.keysym not in _MODS:
             if self.result:
                 self._finish(self.result)
@@ -97,7 +141,29 @@ class KeyRecordDialog(ctk.CTkToplevel):
             self.mods.discard(_MODS[event.keysym])
         return "break"
 
+    # ------------------------------------------------------------ 结束
+    def _stop_grab(self):
+        if self._poll_id:
+            try:
+                self.after_cancel(self._poll_id)
+            except Exception:
+                pass
+            self._poll_id = None
+        if self._timeout_id:
+            try:
+                self.after_cancel(self._timeout_id)
+            except Exception:
+                pass
+            self._timeout_id = None
+        if self.grabber is not None:
+            self.grabber.stop()
+            self.grabber = None
+
     def _finish(self, result):
+        if self._done:
+            return
+        self._done = True
+        self._stop_grab()
         try:
             self.grab_release()
         except Exception:
@@ -107,6 +173,10 @@ class KeyRecordDialog(ctk.CTkToplevel):
             self.on_done(result)
 
     def _cancel(self):
+        if self._done:
+            return
+        self._done = True
+        self._stop_grab()
         try:
             self.grab_release()
         except Exception:

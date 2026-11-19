@@ -323,29 +323,61 @@ class Player:
                 button = str(ev.get("click_button", "left"))
                 style = str(ev.get("click_style", "single"))
                 hold = max(1, int(ev.get("hold_ms", 40)))
-                self.on_status("监控命中: %s  score=%.3f  %s  @(%d,%d)"
-                               % (name, res.score, style, tx, ty), self._progress)
-                log("monitor hit name=%s score=%.3f action=%s at=%d,%d"
-                    % (name, res.score, style, tx, ty))
-                if self.dry_run:
-                    self._move((tx, ty))
+                if style in ("wheel", "wheel_up", "wheel_down"):
+                    if style == "wheel_up":
+                        direction = "up"
+                    elif style == "wheel_down":
+                        direction = "down"
+                    else:
+                        direction = str(ev.get("wheel_dir", "up")).lower()
+                    amount = max(1, int(ev.get("wheel_amount", 3)))
+                    interval = max(0, int(ev.get("wheel_interval_ms", 60)))
+                    delta = 120 if direction == "up" else -120
+                    self.on_status("监控命中: %s  score=%.3f  滚轮%s %d格 @(%d,%d)"
+                                   % (name, res.score, "上" if direction == "up" else "下",
+                                      amount, tx, ty), self._progress)
+                    log("monitor hit name=%s score=%.3f action=wheel dir=%s amount=%d at=%d,%d"
+                        % (name, res.score, direction, amount, tx, ty))
+                    if self.dry_run:
+                        self._move((tx, ty))
+                    else:
+                        set_cursor_pos(tx, ty)
+                    for _i in range(amount):
+                        if self._stop.is_set():
+                            return False
+                        if self._paused.is_set():
+                            while self._paused.is_set() and not self._stop.is_set():
+                                time.sleep(0.05)
+                            if self._stop.is_set():
+                                return False
+                        if not self.dry_run:
+                            mouse_wheel(delta)
+                        if interval and not self._wait(interval):
+                            return False
                 else:
-                    set_cursor_pos(tx, ty)
-                    if style == "double":
-                        for i in range(2):
+                    self.on_status("监控命中: %s  score=%.3f  %s  @(%d,%d)"
+                                   % (name, res.score, style, tx, ty), self._progress)
+                    log("monitor hit name=%s score=%.3f action=%s at=%d,%d"
+                        % (name, res.score, style, tx, ty))
+                    if self.dry_run:
+                        self._move((tx, ty))
+                    else:
+                        set_cursor_pos(tx, ty)
+                        if style == "double":
+                            for i in range(2):
+                                mouse_down(button)
+                                time.sleep(max(1, hold) / 1000.0)
+                                mouse_up(button)
+                                if i == 0:
+                                    time.sleep(0.07)
+                        elif style == "long":
+                            mouse_down(button)
+                            time.sleep(max(1000, hold) / 1000.0)
+                            mouse_up(button)
+                        else:
                             mouse_down(button)
                             time.sleep(max(1, hold) / 1000.0)
                             mouse_up(button)
-                            if i == 0:
-                                time.sleep(0.07)
-                    elif style == "long":
-                        mouse_down(button)
-                        time.sleep(max(1000, hold) / 1000.0)
-                        mouse_up(button)
-                    else:
-                        mouse_down(button)
-                        time.sleep(max(1, hold) / 1000.0)
-                        mouse_up(button)
             elif hit_action == "key":
                 combo = str(ev.get("key_combo", "") or "")
                 hold = max(1, int(ev.get("key_hold_ms", 40)))
