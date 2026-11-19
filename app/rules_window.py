@@ -16,6 +16,7 @@ from core.script import list_scripts
 from core.screen import TemplateMatcher, grab, load_image, to_ctk_image
 from . import theme
 from .icon_crop_dialog import IconCropDialog
+from .point_picker import PointPicker
 from .area_select_dialog import AreaSelectDialog
 from .window_icon import apply_window_icon
 from .widgets import Card, ImagePanel, entry, label
@@ -98,7 +99,7 @@ class ActionDialog(ctk.CTkToplevel):
         self.transient(master)
         apply_window_icon(self)
         self.protocol("WM_DELETE_WINDOW", self.destroy)
-        self.type_var = tk.StringVar(value=self.action.get("type", "click"))
+        self.type_var = tk.StringVar(value=TYPE_NAMES.get(str(self.action.get("type", "click")), "单击 / 双击 / 长按"))
         self.vars = {}
         self._build()
         self.after(100, self._center)
@@ -208,6 +209,10 @@ class ActionDialog(ctk.CTkToplevel):
                         TO_REV.get(a.get("to_mode", "offset"), "相对偏移"))
             self._field("offset_x", "终点/偏移 X", (a.get("offset") or [0, 0])[0], 80)
             self._field("offset_y", "终点/偏移 Y", (a.get("offset") or [0, 0])[1], 80)
+            ctk.CTkButton(self.form, text="屏幕取终点", width=110, height=28,
+                          fg_color=theme.ACCENT, text_color="#04121f",
+                          font=(theme.FONT, theme.fs(10)),
+                          command=self._pick_drag_end).pack(anchor="w", pady=3)
             self._field("duration_ms", "时长(ms)", a.get("duration_ms", 300), 80)
             self._field("steps", "步数", a.get("steps", 20), 60)
         elif t == "notify":
@@ -226,6 +231,12 @@ class ActionDialog(ctk.CTkToplevel):
         self._field("point_y", "固定坐标 Y", p[1], 80)
         self._field("random_x", "随机偏移 X", a.get("random_x", 0), 80)
         self._field("random_y", "随机偏移 Y", a.get("random_y", 0), 80)
+        prow = ctk.CTkFrame(self.form, fg_color="transparent")
+        prow.pack(fill="x", pady=3)
+        label(prow, "定位", 10, theme.MUTED, width=100, anchor="w").pack(side="left")
+        ctk.CTkButton(prow, text="屏幕取点", width=96, height=28, fg_color=theme.ACCENT,
+                      text_color="#04121f", font=(theme.FONT, theme.fs(10)),
+                      command=self._pick_point).pack(side="left")
 
     def _v(self, key, default=""):
         v = self.vars.get(key)
@@ -303,6 +314,28 @@ class ActionDialog(ctk.CTkToplevel):
                             int(float(self._v("point_y", 0) or 0))]
         return out
 
+    def _pick_point(self):
+        PointPicker(self, on_pick=self._on_point)
+
+    def _on_point(self, x, y):
+        if "point_x" in self.vars:
+            self.vars["point_x"].set(str(int(x)))
+        if "point_y" in self.vars:
+            self.vars["point_y"].set(str(int(y)))
+        if "position" in self.vars:
+            self.vars["position"].set("固定坐标")
+
+    def _pick_drag_end(self):
+        PointPicker(self, on_pick=self._on_drag_point)
+
+    def _on_drag_point(self, x, y):
+        if "to_mode" in self.vars:
+            self.vars["to_mode"].set("绝对坐标")
+        if "offset_x" in self.vars:
+            self.vars["offset_x"].set(str(int(x)))
+        if "offset_y" in self.vars:
+            self.vars["offset_y"].set(str(int(y)))
+
     def _center(self):
         try:
             self.update_idletasks()
@@ -339,8 +372,10 @@ class RuleDialog(ctk.CTkToplevel):
         self.after(100, self._center)
 
     def _build(self):
-        top = ctk.CTkFrame(self, fg_color=theme.CARD, corner_radius=12)
-        top.pack(fill="x", padx=16, pady=(14, 8))
+        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll.pack(fill="both", expand=True, padx=0, pady=(10, 0))
+        top = ctk.CTkFrame(self.scroll, fg_color=theme.CARD, corner_radius=12)
+        top.pack(fill="x", padx=16, pady=(0, 8))
         grid = ctk.CTkFrame(top, fg_color="transparent")
         grid.pack(fill="x", padx=14, pady=10)
         grid.grid_columnconfigure(1, weight=1)
@@ -430,27 +465,27 @@ class RuleDialog(ctk.CTkToplevel):
         self.tpl_label.pack(side="left", padx=6)
         self._refresh_icon_preview()
 
-        act_card = Card(self, "动作列表", "按顺序执行")
-        act_card.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        act_card = Card(self.scroll, "动作列表", "按顺序执行")
+        act_card.pack(fill="x", padx=16, pady=(0, 8))
         bar = ctk.CTkFrame(act_card.body, fg_color="transparent")
         bar.pack(fill="x", pady=(0, 6))
         ctk.CTkButton(bar, text="添加动作", width=96, height=28, fg_color=theme.ACCENT,
                       text_color="#04121f", command=self._add_action).pack(side="left")
         label(bar, "动作类型在弹窗中选择", 9).pack(side="left", padx=8)
         self.actions_scroll = ctk.CTkScrollableFrame(act_card.body, fg_color=theme.BG2,
-                                                     corner_radius=8)
-        self.actions_scroll.pack(fill="both", expand=True)
+                                                     corner_radius=8, height=190)
+        self.actions_scroll.pack(fill="x", expand=True)
         self._refresh_actions()
 
-        miss_card = Card(self, "消失动作", "图标从有到无时执行")
-        miss_card.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        miss_card = Card(self.scroll, "消失动作", "图标从有到无时执行")
+        miss_card.pack(fill="x", padx=16, pady=(0, 8))
         mbar = ctk.CTkFrame(miss_card.body, fg_color="transparent")
         mbar.pack(fill="x", pady=(0, 6))
         ctk.CTkButton(mbar, text="添加消失动作", width=110, height=28, fg_color=theme.PURPLE,
                       text_color="white", command=self._add_miss_action).pack(side="left")
         self.miss_scroll = ctk.CTkScrollableFrame(miss_card.body, fg_color=theme.BG2,
-                                                   corner_radius=8, height=96)
-        self.miss_scroll.pack(fill="both", expand=True)
+                                                   corner_radius=8, height=120)
+        self.miss_scroll.pack(fill="x", expand=True)
         self._refresh_miss_actions()
 
         bottom = ctk.CTkFrame(self, fg_color="transparent")

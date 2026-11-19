@@ -182,12 +182,30 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self._show_page("record")
 
     def _new_page(self):
-        """每个页面外层加滚动容器，窗口高度不足时不会裁掉输入框。"""
-        outer = ctk.CTkScrollableFrame(self.content, fg_color="transparent", corner_radius=0)
+        """每个页面外层加纵向 + 横向滚动，窗口变小时不会裁掉内容。"""
+        holder = ctk.CTkFrame(self.content, fg_color="transparent")
+        holder.grid(row=0, column=0, sticky="nsew")
+        holder.grid_rowconfigure(0, weight=1)
+        holder.grid_columnconfigure(0, weight=1)
+        outer = ctk.CTkScrollableFrame(holder, fg_color="transparent", corner_radius=0)
         outer.grid(row=0, column=0, sticky="nsew")
+        hbar = ctk.CTkScrollbar(holder, orientation="horizontal",
+                                command=outer._parent_canvas.xview)
+        hbar.grid(row=1, column=0, sticky="ew")
+        outer._parent_canvas.configure(xscrollcommand=hbar.set)
         inner = ctk.CTkFrame(outer, fg_color="transparent")
-        inner.pack(fill="both", expand=True)
-        return outer, inner
+        inner.pack(anchor="nw")
+
+        def sync_width(_e=None):
+            try:
+                cw = outer._parent_canvas.winfo_width()
+                inner.configure(width=max(1000, cw))
+            except Exception:
+                pass
+
+        outer._parent_canvas.bind("<Configure>", sync_width, add="+")
+        outer.after(120, sync_width)
+        return holder, inner
 
     def _build_statusbar(self):
         bar = ctk.CTkFrame(self, fg_color=theme.BG2, corner_radius=0, height=28)

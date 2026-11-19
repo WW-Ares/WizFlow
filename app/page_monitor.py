@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import datetime
+import shutil
 import json
 import threading
 import time
@@ -316,12 +317,14 @@ class MonitorPageMixin:
         icons.grid(row=1, column=0, sticky="nsew", padx=(0, 6), pady=(6, 0))
         ih = ctk.CTkFrame(icons.body, fg_color="transparent")
         ih.pack(fill="x")
-        self.icon_selected_label = label(ih, "当前模板：未选择", 10, theme.TEXT)
+        self.icon_selected_label = label(ih, "当前图标：未选择", 10, theme.TEXT)
         self.icon_selected_label.pack(side="left")
+        self._btn(ih, "删除", self._delete_icon, width=58, color=theme.DANGER,
+                  text_color="white").pack(side="left", padx=6)
         self._btn(ih, "刷新", self._refresh_icons, width=58).pack(side="right")
         self._btn(ih, "目录", self._open_icons_dir, width=58).pack(side="right", padx=6)
-        self._btn(ih, "删除", self._delete_icon, width=58, color=theme.DANGER,
-                  text_color="white").pack(side="right")
+        self._btn(ih, "添加", self._add_icons, width=58, color=theme.OK,
+                  text_color="#04121f").pack(side="right")
         self.icons_scroll = ctk.CTkScrollableFrame(icons.body, fg_color=theme.BG2,
                                                     corner_radius=8)
         self.icons_scroll.pack(fill="both", expand=True, pady=(8, 0))
@@ -403,17 +406,19 @@ class MonitorPageMixin:
                 line += "    消失：" + "、".join(action_summary(a) for a in miss[:1])
             body = ctk.CTkFrame(row, fg_color="transparent")
             body.pack(fill="x", padx=8, pady=(2, 0))
-            label(body, line, 9, theme.MUTED, anchor="w", wraplength=230,
+            label(body, line, 9, theme.MUTED, anchor="w", wraplength=300,
                   justify="left").pack(side="left", fill="x", expand=True)
+
+            srow = ctk.CTkFrame(row, fg_color="transparent")
+            srow.pack(fill="x", padx=8, pady=(2, 6))
+            st = label(srow, "状态：等待检测", 9, theme.MUTED, anchor="w")
+            st.pack(side="left")
+            self._rule_status_labels[rid] = st
             res_var = tk.BooleanVar(value=bool(rule.get("resident", False)))
-            ctk.CTkSwitch(body, text="常驻", variable=res_var, width=62,
+            ctk.CTkSwitch(srow, text="常驻", variable=res_var, width=62,
                           font=(theme.FONT, theme.fs(9)), progress_color=theme.ACCENT,
                           command=lambda r=rid, v=res_var: self._set_rule_flag(r, "resident", bool(v.get()))
                           ).pack(side="right")
-
-            st = label(row, "状态：等待检测", 9, theme.MUTED, anchor="w")
-            st.pack(anchor="w", padx=8, pady=(2, 6))
-            self._rule_status_labels[rid] = st
         self._refresh_multi_label()
 
     def _refresh_multi_label(self):
@@ -845,6 +850,35 @@ class MonitorPageMixin:
         self._selected_icon = str(path)
         self.icon_selected_label.configure(text="当前图标：%s" % path.name)
         self._refresh_icons()
+
+    def _add_icons(self):
+        paths = filedialog.askopenfilenames(
+            title="批量添加图标",
+            filetypes=[("图片", "*.png *.jpg *.jpeg *.bmp")])
+        if not paths:
+            return
+        added = 0
+        failed = 0
+        for raw in paths:
+            src = Path(raw)
+            if not src.exists():
+                failed += 1
+                continue
+            dst = ICONS_DIR / src.name
+            i = 1
+            while dst.exists():
+                dst = ICONS_DIR / ("%s_%d%s" % (src.stem, i, src.suffix))
+                i += 1
+            try:
+                shutil.copy2(src, dst)
+                added += 1
+            except Exception:
+                failed += 1
+        self._refresh_icons()
+        msg = "已添加 %d 个图标" % added
+        if failed:
+            msg += "，%d 个失败" % failed
+        self._toast(msg, "ok" if added else "warn")
 
     def _delete_icon(self):
         if not self._selected_icon:

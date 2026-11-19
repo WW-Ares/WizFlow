@@ -28,6 +28,7 @@ class IconCropDialog(ctk.CTkToplevel):
         self.oy = 0
         self.crop = list(default_crop) if default_crop and len(default_crop) == 4 else [0, 0, self.iw, self.ih]
         self._drag = None
+        self._space = False
         self._drag_start = (0, 0)
         self._pan_start = (0, 0)
         self._photo = None
@@ -62,7 +63,7 @@ class IconCropDialog(ctk.CTkToplevel):
     # ------------------------------------------------------------ UI
     def _build(self):
         label(self, "从监控区域截图中圈选匹配图标", 16, theme.TEXT).pack(anchor="w", padx=18, pady=(14, 2))
-        label(self, "左键拖拽框选图标；滚轮缩放；右键拖拽平移；保存后只保存框内小图。",
+        label(self, "左键拖拽框选；滚轮缩放；按住空格+左键拖动平移；右键拖动也可平移。",
               10, theme.MUTED).pack(anchor="w", padx=18, pady=(0, 8))
 
         bar = ctk.CTkFrame(self, fg_color=theme.CARD, corner_radius=10)
@@ -91,6 +92,9 @@ class IconCropDialog(ctk.CTkToplevel):
         self.canvas.bind("<ButtonRelease-3>", lambda _e: setattr(self, "_drag", None))
         self.canvas.bind("<MouseWheel>", self._wheel)
         self.canvas.bind("<Configure>", lambda _e: self._redraw())
+        for w in (self, self.canvas):
+            w.bind("<KeyPress-space>", self._space_down)
+            w.bind("<KeyRelease-space>", self._space_up)
 
         side = ctk.CTkFrame(body, fg_color=theme.CARD, corner_radius=12, width=280)
         side.grid(row=0, column=1, sticky="ns", padx=(10, 0))
@@ -163,7 +167,30 @@ class IconCropDialog(ctk.CTkToplevel):
         return self.ox + x * self.scale, self.oy + y * self.scale
 
     # ------------------------------------------------------------ 鼠标
+    def _space_down(self, _e=None):
+        self._space = True
+        try:
+            self.canvas.configure(cursor="fleur")
+        except Exception:
+            pass
+        return "break"
+
+    def _space_up(self, _e=None):
+        self._space = False
+        try:
+            self.canvas.configure(cursor="crosshair")
+        except Exception:
+            pass
+        return "break"
+
     def _down(self, e):
+        try:
+            self.canvas.focus_set()
+        except Exception:
+            pass
+        if self._space:
+            self._pan_down(e)
+            return
         self._drag = "crop"
         ix, iy = self._canvas_to_img(e.x, e.y)
         ix = min(max(0, ix), self.iw)
@@ -173,6 +200,9 @@ class IconCropDialog(ctk.CTkToplevel):
         self._redraw()
 
     def _move(self, e):
+        if self._drag == "pan":
+            self._pan_move(e)
+            return
         if self._drag != "crop":
             return
         x0, y0 = self._drag_start
