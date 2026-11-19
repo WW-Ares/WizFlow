@@ -14,6 +14,8 @@ WizFlow 以 **GPL-2.0** 发布。以下是运行时/构建依赖的许可证信�
 | json5 | 兼容 KeymouseGo 脚本格式 | MIT |
 | darkdetect | 主题检测（CustomTkinter 依赖） | BSD-3-Clause |
 | Python | 运行时 | PSF |
+| Parsec VDD (parsec-vdd) | 虚拟显示器驱动（`assets/vdd/driver`） | MIT |
+| nefcon (nefconw.exe) | 驱动/设备节点安装工具 | MIT |
 
 ## pynput / LGPL-3.0
 
@@ -25,6 +27,16 @@ WizFlow 以 **GPL-2.0** 发布。以下是运行时/构建依赖的许可证信�
 - 如果修改了 pynput 本身，修改部分按 LGPL-3.0 开源。
 
 WizFlow 本身以 GPL-2.0 发布，源码公开，因此上述 LGPL 合规要求自然满足。
+
+## Parsec VDD / nefcon
+
+`assets/vdd/` 内包含：
+
+- `driver/mm.inf`、`mm.dll`、`mm.cat`：来自 [nomi-san/parsec-vdd](https://github.com/nomi-san/parsec-vdd) v0.45.1，MIT，驱动已签名；
+- `nefconw.exe`：来自 [nefarius/NefCon](https://github.com/nefarius/NefCon)，MIT，用于创建设备节点和安装驱动；
+- `LICENSE-parsec-vdd.txt`：上游 MIT 许可证原文。
+
+仅在用户主动启用「虚拟屏保活」时安装，可随时在设置页卸载。
 
 ## KeymouseGo
 

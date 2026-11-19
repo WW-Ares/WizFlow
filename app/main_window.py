@@ -15,6 +15,7 @@ from PIL import Image
 from config import (APP_NAME, APP_VERSION, CONFIG_FILE, ICONS_DIR, LOGS_DIR,
                     ROOT, SCRIPTS_DIR, Config, asset_path)
 from . import theme
+from .hud import HudWindow
 from core.hotkeys import HotkeyManager, parse_hotkey
 from core.log import log
 from core.monitor import MonitorProfile, ProbeResult
@@ -68,6 +69,8 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self._build_sidebar()
         self._build_content()
         self._build_statusbar()
+        self.hud: HudWindow | None = None
+        self._build_hud()
 
         self._refresh_scripts()
         self._refresh_icons()
@@ -113,6 +116,10 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
 
         right = ctk.CTkFrame(head, fg_color="transparent")
         right.grid(row=0, column=2, padx=20, sticky="e")
+        self.hud_var = tk.BooleanVar(value=bool(self.cfg.get("hud.enabled", True)))
+        ctk.CTkSwitch(right, text="悬浮窗", variable=self.hud_var, width=54,
+                      font=(theme.FONT, theme.fs(10)), progress_color=theme.ACCENT,
+                      command=self._toggle_hud).pack(side="left", padx=(0, 14))
         ctk.CTkLabel(right, text="F6 启动/暂停  ·  F7 停止  ·  F8 录制",
                      font=(theme.MONO, theme.fs(10)), text_color=theme.MUTED).pack(side="left", padx=(0, 14))
         self.header_pill = Pill(right, "待机", theme.OK)
@@ -210,6 +217,35 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
 
     def _set_header(self, text: str, color: str):
         self.header_pill.set(text, color)
+        try:
+            if self.hud is not None:
+                self.hud.set_status(text, color)
+        except Exception:
+            pass
+
+    # ================================================================ 悬浮窗
+    def _build_hud(self):
+        try:
+            self.hud = HudWindow(self, self.cfg)
+            if bool(self.cfg.get("hud.enabled", True)):
+                self.hud.show()
+        except Exception as exc:
+            log("悬浮窗创建失败: %s" % exc, "WARN")
+            self.hud = None
+
+    def _toggle_hud(self):
+        on = bool(self.hud_var.get())
+        cfg_hud = dict(self.cfg.get("hud", {}) or {})
+        cfg_hud["enabled"] = on
+        self.cfg.set("hud", cfg_hud)
+        self.cfg.save()
+        if self.hud is None:
+            self._build_hud()
+            return
+        if on:
+            self.hud.show()
+        else:
+            self.hud.hide()
 
     def _open_scripts_dir(self):
         os.startfile(str(SCRIPTS_DIR))
@@ -244,6 +280,8 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
                     self._on_live(msg[1])
                 elif kind == "vd":
                     self._on_vd_result(msg[1])
+                elif kind == "vdd":
+                    self._on_parsec_result(msg[1], msg[2] if len(msg) > 2 else "")
                 elif kind == "toast":
                     self._toast(msg[1], msg[2] if len(msg) > 2 else "info")
         except queue.Empty:
@@ -285,6 +323,11 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
     # ================================================================ 会话保活
     def _startup(self):
         self._start_hotkeys()
+        if bool(self.cfg.get("vdisplay_parsec", False)):
+            self.parsec_status.configure(text="状态：正在启动虚拟屏…", text_color=theme.WARN)
+            threading.Thread(target=self._enable_parsec_bg, daemon=True).start()
+        else:
+            self._refresh_parsec_status()
         if bool(self.cfg.get("vdisplay", False)):
             self.vd_status.configure(text="状态：正在开启会话保活…", text_color=theme.WARN)
             threading.Thread(target=self._enable_vd_bg, daemon=True).start()
@@ -326,10 +369,21 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
                 keepalive.disable()
             else:
                 set_awake(False)
+            try:
+                from core import vdisplay_parsec as vp
+                if vp.virtual.enabled or vp.active_count() > 0:
+                    vp.ensure_off(wait_ms=1200)
+            except Exception:
+                pass
             self._save_script(silent=True) if self.events and self.script_path else None
             self._sync_profile()
         except Exception:
             log("退出清理异常: %s" % traceback.format_exc(), "ERROR")
+        try:
+            if self.hud is not None:
+                self.hud.destroy()
+        except Exception:
+            pass
         try:
             self.destroy()
         except Exception:
@@ -382,6 +436,11 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             img = ImageGrab.grab(bbox=(x, y, x + w, y + h))
             img.save(str(LOGS_DIR / ("ui_smoke_%s.png" % page)))
             log("UI smoke screenshot saved %s %dx%d at %d,%d" % (page, w, h, x, y))
+            if self.hud is not None and self.hud.winfo_viewable():
+                hx, hy = self.hud.winfo_rootx(), self.hud.winfo_rooty()
+                hw, hh = self.hud.winfo_width(), self.hud.winfo_height()
+                himg = ImageGrab.grab(bbox=(hx - 8, hy - 8, hx + hw + 8, hy + hh + 8))
+                himg.save(str(LOGS_DIR / "hud_smoke.png"))
         except Exception as exc:
             log("UI smoke 截图失败(%s): %s" % (page, exc), "WARN")
         self.after(300, self._ui_smoke_step)

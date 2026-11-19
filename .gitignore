@@ -9,6 +9,7 @@ __pycache__/
 build/
 dist/
 *.exe
+!assets/vdd/nefconw.exe
 *.pkg
 
 # runtime data

@@ -52,10 +52,29 @@ class SettingsPageMixin:
                       command=self._restart_app).pack(side="left", padx=6)
         label(row, "字体、按钮和输入框同步缩放；重启后生效。", 9).pack(side="left", padx=8)
 
-        vd = Card(page, "虚拟屏保活", "内置会话保活 · 无需安装驱动")
-        vd.grid(row=2, column=0, sticky="ew", pady=8)
+        vp = Card(page, "虚拟屏保活", "Parsec VDD · 真正多一块虚拟显示器")
+        vp.grid(row=2, column=0, sticky="ew", pady=8)
+        self.parsec_var = tk.BooleanVar(value=bool(self.cfg.get("vdisplay_parsec", False)))
+        ctk.CTkSwitch(vp.body, text="启用虚拟显示器（断开远控后监控区域仍然有画面）",
+                      variable=self.parsec_var, font=(theme.FONT, theme.fs(11)),
+                      progress_color=theme.ACCENT,
+                      command=self._toggle_parsec).pack(anchor="w")
+        self.parsec_status = label(vp.body, "状态：检测中…", 10, theme.TEXT)
+        self.parsec_status.pack(anchor="w", pady=(8, 4))
+        row = ctk.CTkFrame(vp.body, fg_color="transparent")
+        row.pack(fill="x", pady=(4, 0))
+        self._btn(row, "安装驱动", self._install_driver, width=84,
+                  color=theme.CARD2).pack(side="left")
+        self._btn(row, "卸载驱动", self._uninstall_driver, width=84).pack(side="left", padx=6)
+        self._btn(row, "刷新状态", self._refresh_parsec_status, width=84).pack(side="left")
+        self._btn(row, "立即关闭", self._force_parsec_off, width=84).pack(side="left", padx=6)
+        label(vp.body, "驱动随软件打包（MIT，已签名），首次启用会弹一次 UAC 管理员授权。", 9).pack(anchor="w", pady=(6, 0))
+        label(vp.body, "原理：创建一块 Parsec 虚拟显示器并以 50ms 心跳保活，不依赖 UU / 不依赖第三方软件。", 9).pack(anchor="w")
+
+        vd = Card(page, "会话保活", "内置兜底 · 无需驱动")
+        vd.grid(row=3, column=0, sticky="ew", pady=8)
         self.vd_var = tk.BooleanVar(value=bool(self.cfg.get("vdisplay", False)))
-        ctk.CTkSwitch(vd.body, text="启用虚拟屏保活（阻止睡眠/熄屏/屏保，空闲微动鼠标）",
+        ctk.CTkSwitch(vd.body, text="阻止睡眠 / 熄屏 / 屏保，空闲时微动鼠标",
                       variable=self.vd_var, font=(theme.FONT, theme.fs(11)), progress_color=theme.ACCENT,
                       command=self._toggle_vdisplay).pack(anchor="w")
         self.vd_status = label(vd.body, "状态：未启用", 10, theme.TEXT)
@@ -64,10 +83,10 @@ class SettingsPageMixin:
         row.pack(fill="x", pady=(4, 0))
         self._btn(row, "刷新状态", self._refresh_vd_status, width=84).pack(side="left")
         self._btn(row, "立即关闭", self._force_vd_off, width=84).pack(side="left", padx=6)
-        label(row, "纯 Windows API：SetThreadExecutionState + 空闲输入微动，不依赖第三方驱动。", 9).pack(side="left", padx=8)
+        label(row, "纯 Windows API：SetThreadExecutionState + 空闲输入微动。", 9).pack(side="left", padx=8)
 
         about = Card(page, "路径与工具")
-        about.grid(row=3, column=0, sticky="ew", pady=8)
+        about.grid(row=4, column=0, sticky="ew", pady=8)
         info = ctk.CTkTextbox(about.body, height=150, fg_color=theme.BG2, font=(theme.MONO, theme.fs(9)),
                               text_color=theme.MUTED)
         info.pack(fill="x")
@@ -117,6 +136,11 @@ class SettingsPageMixin:
         self.cfg.set("hotkeys", vals)
         self.cfg.save()
         self._start_hotkeys()
+        try:
+            if self.hud is not None:
+                self.hud.refresh_hotkeys()
+        except Exception:
+            pass
         self._toast("热键已应用：启动=%s / 停止=%s / 录制=%s"
                     % (vals["start_pause"], vals["stop"], vals["record"]), "ok")
 
@@ -154,3 +178,115 @@ class SettingsPageMixin:
         threading.Thread(target=self._disable_vd_bg, daemon=True).start()
 
 
+
+    # ------------------------------------------------------------ Parsec 虚拟屏
+    def _toggle_parsec(self):
+        on = bool(self.parsec_var.get())
+        self.cfg.set("vdisplay_parsec", on)
+        self.cfg.save()
+        if on:
+            self.parsec_status.configure(text="状态：正在安装驱动 / 启动虚拟屏…", text_color=theme.WARN)
+            threading.Thread(target=self._enable_parsec_bg, daemon=True).start()
+        else:
+            self.parsec_status.configure(text="状态：正在关闭…", text_color=theme.MUTED)
+            threading.Thread(target=self._disable_parsec_bg, daemon=True).start()
+
+    def _enable_parsec_bg(self):
+        from core import vdisplay_parsec as vp
+        try:
+            if not vp.driver_installed():
+                err = vp.install_driver()
+                if err:
+                    self.ui_queue.put(("vdd", "install", err))
+                    return
+            err = vp.ensure_on()
+            self.ui_queue.put(("vdd", "on", err))
+        except Exception as exc:
+            self.ui_queue.put(("vdd", "on", str(exc)))
+
+    def _disable_parsec_bg(self):
+        from core import vdisplay_parsec as vp
+        try:
+            vp.ensure_off()
+            self.ui_queue.put(("vdd", "off", ""))
+        except Exception as exc:
+            self.ui_queue.put(("vdd", "off", str(exc)))
+
+    def _on_parsec_result(self, kind: str, err: str):
+        if kind == "off":
+            self.parsec_status.configure(text="状态：已关闭", text_color=theme.MUTED)
+            return
+        if err:
+            self.parsec_status.configure(text="状态：失败：%s" % err, text_color=theme.WARN)
+            if kind == "install":
+                self.parsec_var.set(False)
+                self.cfg.set("vdisplay_parsec", False)
+                self.cfg.save()
+            self._toast("虚拟屏操作失败：%s" % err, "warn")
+            return
+        self._refresh_parsec_status()
+        if kind == "on":
+            self._toast("虚拟屏已启动，监控区域现在有独立画面", "ok")
+        elif kind == "install":
+            self._toast("Parsec 虚拟屏驱动安装完成", "ok")
+
+    def _refresh_parsec_status(self):
+        try:
+            from core import vdisplay_parsec as vp
+            st = vp.status()
+            if st.get("enabled") and st.get("active", 0) > 0:
+                text = "状态：虚拟屏运行中 · 当前 %d 块 · 心跳 50ms" % st.get("active", 0)
+                color = theme.OK
+            elif st.get("enabled"):
+                text = "状态：已启用，虚拟屏尚未激活（请检查设备管理器）"
+                color = theme.WARN
+            elif st.get("installed"):
+                text = "状态：驱动已安装 · 未启用"
+                color = theme.MUTED
+            else:
+                text = "状态：驱动未安装（启用时会自动安装）"
+                color = theme.MUTED
+            self.parsec_status.configure(text=text, text_color=color)
+        except Exception as exc:
+            self.parsec_status.configure(text="状态读取失败：%s" % exc, text_color=theme.WARN)
+
+    def _force_parsec_off(self):
+        self.parsec_var.set(False)
+        self.cfg.set("vdisplay_parsec", False)
+        self.cfg.save()
+        self.parsec_status.configure(text="状态：正在关闭…", text_color=theme.MUTED)
+        threading.Thread(target=self._disable_parsec_bg, daemon=True).start()
+
+    def _install_driver(self):
+        from tkinter import messagebox
+        if not messagebox.askyesno("安装驱动", "将安装内置的 Parsec 虚拟显示器驱动（已签名）。\n"
+                                              "首次安装会弹出 UAC 管理员授权，是否继续？"):
+            return
+        self.parsec_status.configure(text="状态：正在安装驱动，请在 UAC 窗口点「是」…", text_color=theme.WARN)
+
+        def work():
+            from core import vdisplay_parsec as vp
+            err = vp.install_driver()
+            self.ui_queue.put(("vdd", "install", err))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _uninstall_driver(self):
+        from tkinter import messagebox
+        if not messagebox.askyesno("卸载驱动", "将停止虚拟屏并卸载驱动。\n"
+                                              "卸载后「虚拟屏保活」不可用，是否继续？"):
+            return
+        self.parsec_var.set(False)
+        self.cfg.set("vdisplay_parsec", False)
+        self.cfg.save()
+
+        def work():
+            from core import vdisplay_parsec as vp
+            try:
+                vp.ensure_off()
+            except Exception:
+                pass
+            err = vp.remove_driver()
+            self.ui_queue.put(("vdd", "uninstall", err))
+
+        threading.Thread(target=work, daemon=True).start()

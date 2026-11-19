@@ -139,6 +139,22 @@ class Player:
                 elif typ == "sequence":
                     if not self._exec_events(ev.get("events") or [], anchor):
                         return False
+                elif typ == "wait":
+                    ms = max(0.0, float(ev.get("ms", 0) or 0))
+                    if ms and not self._wait(ms):
+                        return False
+                elif typ == "script":
+                    sp = self._resolve_path(str(ev.get("path", "") or ""))
+                    if sp is None:
+                        log("节点脚本不存在: %s" % ev.get("path", ""), "WARN")
+                    else:
+                        doc = ScriptDoc.load(sp)
+                        if ev.get("wait", True):
+                            if not self._exec_events(doc.events, anchor):
+                                return False
+                        else:
+                            threading.Thread(target=self._exec_events, args=(doc.events, anchor),
+                                             daemon=True).start()
                 else:
                     log("跳过未知事件类型: %s" % typ, "WARN")
             except Exception as exc:

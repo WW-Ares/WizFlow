@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import datetime
+import copy
 import time
 import tkinter as tk
+from tkinter import ttk
 from pathlib import Path
 from tkinter import messagebox
 
@@ -12,7 +14,8 @@ import customtkinter as ctk
 from config import SCRIPTS_DIR
 from . import theme
 from core.hotkeys import parse_hotkey
-from core.script import ScriptDoc, event_summary, list_scripts, new_script_path
+from core.script import ScriptDoc, describe_event, list_scripts, new_script_path
+from .event_editor import EventEditorDialog
 from .widgets import Card, Pill, entry, label
 
 
@@ -117,23 +120,75 @@ class RecordPageMixin:
         self.play_log.insert("end", "等待启动…")
         self.play_log.configure(state="disabled")
 
-        ev_card = Card(page, "事件列表", "含鼠标 / 键盘 / 监控节点")
+        ev_card = Card(page, "事件列表", "双击编辑 · Delete 删除 · Ctrl 多选")
         ev_card.grid(row=2, column=0, sticky="nsew")
         bar = ctk.CTkFrame(ev_card.body, fg_color="transparent")
         bar.pack(fill="x", pady=(0, 6))
-        self._btn(bar, "删除最后一条", self._delete_last_event, width=96).pack(side="left")
-        self._btn(bar, "清空", self._clear_events, width=64).pack(side="left", padx=6)
+        self._btn(bar, "＋ 新增节点", self._add_node, width=104, color=theme.ACCENT,
+                  text_color="#04121f").pack(side="left")
+        self._btn(bar, "编辑", self._edit_event, width=64).pack(side="left", padx=6)
+        self._btn(bar, "删除", self._delete_events, width=64, color=theme.DANGER,
+                  text_color="white").pack(side="left")
+        self._btn(bar, "复制", self._copy_events, width=64).pack(side="left", padx=6)
+        self._btn(bar, "上移", self._move_up, width=64).pack(side="left")
+        self._btn(bar, "下移", self._move_down, width=64).pack(side="left", padx=6)
+        self._btn(bar, "保存", self._save_script, width=64, color=theme.OK,
+                  text_color="#04121f").pack(side="left")
+        self._btn(bar, "清空", self._clear_events, width=64).pack(side="right")
+        self.event_hint = label(bar, "", 9)
+        self.event_hint.pack(side="right", padx=10)
 
-        header = ctk.CTkFrame(ev_card.body, fg_color=theme.BG2, height=26, corner_radius=6)
-        header.pack(fill="x")
-        for text, width, anchor in (("#", 54, "w"), ("类型", 64, "w"),
-                                    ("动作", 190, "w"), ("内容", 320, "w")):
-            ctk.CTkLabel(header, text=text, width=width, anchor=anchor, font=(theme.MONO, theme.fs(9)),
-                         text_color=theme.MUTED).pack(side="left", padx=(8, 0))
-
-        self.events_scroll = ctk.CTkScrollableFrame(ev_card.body, fg_color=theme.BG2,
-                                                    corner_radius=8)
-        self.events_scroll.pack(fill="both", expand=True, pady=(4, 0))
+        tables = ctk.CTkFrame(ev_card.body, fg_color=theme.BG2, corner_radius=8)
+        tables.pack(fill="both", expand=True, pady=(2, 0))
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+        style.configure("WF.Treeview", background=theme.BG2, fieldbackground=theme.BG2,
+                        foreground=theme.TEXT, rowheight=max(24, theme.fs(13)),
+                        borderwidth=0, relief="flat", font=(theme.FONT, theme.fs(10)),
+                        bordercolor=theme.BG2, lightcolor=theme.BG2, darkcolor=theme.BG2)
+        style.configure("WF.Treeview.Heading", background=theme.CARD2, foreground=theme.MUTED,
+                        relief="flat", font=(theme.FONT, theme.fs(10), "bold"), padding=(6, 4),
+                        bordercolor=theme.CARD2, lightcolor=theme.CARD2, darkcolor=theme.CARD2)
+        style.map("WF.Treeview", background=[("selected", "#1d4ed8")],
+                  foreground=[("selected", "#ffffff")])
+        style.map("WF.Treeview.Heading", background=[("active", theme.LINE)])
+        style.layout("WF.Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
+        for base in ("Treeview", "Treeview.Heading"):
+            try:
+                style.configure(base, lightcolor=theme.BG2, darkcolor=theme.BG2,
+                                bordercolor=theme.BG2, borderwidth=0, relief="flat")
+            except Exception:
+                pass
+        style.configure("WF.Vertical.TScrollbar", background=theme.CARD2, troughcolor=theme.BG2,
+                        bordercolor=theme.BG2, arrowcolor=theme.MUTED,
+                        darkcolor=theme.CARD2, lightcolor=theme.CARD2, relief="flat",
+                        borderwidth=0, arrowsize=12)
+        style.map("WF.Vertical.TScrollbar", background=[("active", theme.LINE)])
+        cols = ("idx", "delay", "kind", "action", "params", "note")
+        heads = {"idx": "序号", "delay": "延迟(ms)", "kind": "类型",
+                 "action": "动作", "params": "坐标 / 参数", "note": "备注"}
+        widths = {"idx": 64, "delay": 84, "kind": 80, "action": 160, "params": 330, "note": 160}
+        self.event_tree = ttk.Treeview(tables, columns=cols, show="headings",
+                                       style="WF.Treeview", selectmode="extended")
+        for c in cols:
+            self.event_tree.heading(c, text=heads[c])
+            self.event_tree.column(c, width=widths[c], minwidth=48, anchor="w",
+                                   stretch=(c in ("params", "note")))
+        vs = ttk.Scrollbar(tables, orient="vertical", command=self.event_tree.yview,
+                           style="WF.Vertical.TScrollbar")
+        self.event_tree.configure(yscrollcommand=vs.set)
+        self.event_tree.pack(side="left", fill="both", expand=True)
+        vs.pack(side="right", fill="y")
+        self.event_tree.tag_configure("even", background=theme.BG2)
+        self.event_tree.tag_configure("odd", background="#111c30")
+        self.event_tree.bind("<Double-1>", lambda _e: self._edit_event())
+        self.event_tree.bind("<Delete>", lambda _e: self._delete_events())
+        self.event_tree.bind("<Control-a>", self._select_all)
+        self.event_tree.bind("<Control-A>", self._select_all)
+        self.event_tree.bind("<<TreeviewSelect>>", lambda _e: self._update_hint())
 
     # ------------------------------------------------------------ 脚本
     def _refresh_scripts(self, select: Path | None = None):
@@ -225,52 +280,155 @@ class RecordPageMixin:
         self._rebuild_events()
 
     def _rebuild_events(self):
-        for row in self._event_rows:
-            try:
-                row.destroy()
-            except Exception:
-                pass
-        self._event_rows = []
-        show = self.events[-400:]
-        for i, ev in enumerate(show):
-            self._add_event_row(ev, len(self.events) - len(show) + i + 1)
+        try:
+            for item in self.event_tree.get_children():
+                self.event_tree.delete(item)
+        except Exception:
+            pass
+        for i, ev in enumerate(self.events):
+            self._insert_tree_row(i, ev)
         self._update_counts()
 
-    def _add_event(self, ev: dict):
-        self.events.append(ev)
-        if len(self._event_rows) >= 500:
-            row = self._event_rows.pop(0)
-            try:
-                row.destroy()
-            except Exception:
-                pass
-        self._add_event_row(ev, len(self.events))
-        self._update_counts()
+    def _insert_tree_row(self, idx: int, ev: dict):
+        d = describe_event(ev)
         try:
-            self.events_scroll._parent_canvas.yview_moveto(1.0)
+            self.event_tree.insert("", "end", iid=str(idx), values=(
+                "%04d" % (idx + 1), "%g" % d["delay"], d["kind"], d["action"],
+                d["params"], d["note"]), tags=("odd" if idx % 2 else "even",))
         except Exception:
             pass
 
-    def _add_event_row(self, ev: dict, idx: int):
-        kind, action, detail = event_summary(ev)
-        row = ctk.CTkFrame(self.events_scroll, fg_color="transparent", height=24)
-        row.pack(fill="x", pady=1)
-        color = {"鼠标": theme.ACCENT, "键盘": theme.PURPLE, "输入": theme.OK,
-                 "监控": theme.WARN}.get(kind, theme.MUTED)
-        cells = [
-            ("%04d" % idx, 54, theme.LINE, theme.MONO),
-            (kind, 64, color, theme.FONT),
-            (action, 190, theme.TEXT, theme.FONT),
-            (detail, 320, theme.MUTED, theme.MONO),
-        ]
-        for text, width, fg, font in cells:
-            ctk.CTkLabel(row, text=text, width=width, anchor="w", text_color=fg,
-                         font=(font, 9)).pack(side="left", padx=(8, 0))
-        self._event_rows.append(row)
+    def _add_event(self, ev: dict):
+        self.events.append(ev)
+        self._insert_tree_row(len(self.events) - 1, ev)
+        self._update_counts()
+        try:
+            iid = str(len(self.events) - 1)
+            self.event_tree.see(iid)
+            self.event_tree.selection_set(iid)
+        except Exception:
+            pass
+
+    def _selected(self) -> list[int]:
+        try:
+            return sorted(int(i) for i in self.event_tree.selection())
+        except Exception:
+            return []
+
+    def _select_all(self, _e=None):
+        try:
+            self.event_tree.selection_set(self.event_tree.get_children())
+        except Exception:
+            pass
+        return "break"
+
+    def _update_hint(self):
+        n = len(self._selected())
+        try:
+            self.event_hint.configure(text=("已选 %d 个节点" % n) if n else "双击节点即可编辑")
+        except Exception:
+            pass
 
     def _update_counts(self):
         self.event_count_label.configure(text="%d 个事件" % len(self.events))
         self.count_label.configure(text="事件 %d" % len(self.events))
+        self._update_hint()
+
+    def _node_dialog(self, ev=None):
+        sdir = self.script_path.parent if self.script_path else SCRIPTS_DIR
+        dlg = EventEditorDialog(self, ev, script_dir=sdir)
+        self.wait_window(dlg)
+        return dlg.result
+
+    def _add_node(self):
+        events = self._node_dialog(None)
+        if not events:
+            return
+        pos = self._selected()
+        at = (pos[-1] + 1) if pos else len(self.events)
+        self.events[at:at] = events
+        self._rebuild_events()
+        self._select_range(at, at + len(events) - 1)
+        self._toast("已新增 %d 个节点，记得保存" % len(events), "ok")
+
+    def _select_range(self, a: int, b: int):
+        try:
+            kids = self.event_tree.get_children()
+            for i in range(max(0, a), min(b, len(kids) - 1) + 1):
+                self.event_tree.selection_add(kids[i])
+            self.event_tree.see(kids[min(b, len(kids) - 1)])
+        except Exception:
+            pass
+
+    def _edit_event(self):
+        sel = self._selected()
+        if not sel:
+            self._toast("请先选中一个节点", "warn")
+            return
+        if len(sel) > 1:
+            self._toast("一次只能编辑一个节点（可批量删除、复制、移动）", "warn")
+            return
+        i = sel[0]
+        ev = self.events[i]
+        typ = str(ev.get("type", "")).lower()
+        if typ in ("monitor", "monitor_group"):
+            self._show_page("monitor")
+            if typ == "monitor_group" and hasattr(self, "_open_rules_window"):
+                try:
+                    self._open_rules_window()
+                except Exception:
+                    pass
+            self._toast("监控节点请在「区域监控」页编辑", "info")
+            return
+        events = self._node_dialog(ev)
+        if not events:
+            return
+        self.events[i:i + 1] = events
+        self._rebuild_events()
+        self._select_range(i, i + len(events) - 1)
+        self._toast("节点已更新，记得保存", "ok")
+
+    def _delete_events(self):
+        sel = self._selected()
+        if not sel:
+            self._toast("请先选中要删除的节点", "warn")
+            return
+        if not messagebox.askyesno("删除节点", "确定删除选中的 %d 个节点？" % len(sel)):
+            return
+        for i in reversed(sel):
+            del self.events[i]
+        self._rebuild_events()
+        self._toast("已删除 %d 个节点" % len(sel), "ok")
+
+    def _copy_events(self):
+        sel = self._selected()
+        if not sel:
+            self._toast("请先选中要复制的节点", "warn")
+            return
+        items = [copy.deepcopy(self.events[i]) for i in sel]
+        at = sel[-1] + 1
+        self.events[at:at] = items
+        self._rebuild_events()
+        self._select_range(at, at + len(items) - 1)
+        self._toast("已复制 %d 个节点" % len(items), "ok")
+
+    def _move_up(self):
+        sel = self._selected()
+        if not sel or sel[0] == 0:
+            return
+        for i in sel:
+            self.events[i - 1], self.events[i] = self.events[i], self.events[i - 1]
+        self._rebuild_events()
+        self._select_range(sel[0] - 1, sel[-1] - 1)
+
+    def _move_down(self):
+        sel = self._selected()
+        if not sel or sel[-1] >= len(self.events) - 1:
+            return
+        for i in reversed(sel):
+            self.events[i + 1], self.events[i] = self.events[i], self.events[i + 1]
+        self._rebuild_events()
+        self._select_range(sel[0] + 1, sel[-1] + 1)
 
     # ------------------------------------------------------------ 录制
     def _on_traj_change(self):

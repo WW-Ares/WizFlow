@@ -119,6 +119,19 @@ def _selftest() -> int:
         st = vd_status()
         return "mode=%s enabled=%s nudges=%s" % (st.get("mode"), st.get("enabled"), st.get("nudges"))
 
+    def t_describe():
+        from core.script import describe_event
+        d = describe_event({"type": "event", "event_type": "EM",
+                            "action_type": "mouse left down", "action": [10, 20]})
+        assert d["kind"] == "鼠标" and d["action"] == "左键按下", d
+        return "%s/%s" % (d["kind"], d["action"])
+
+    def t_parsec():
+        from core import vdisplay_parsec as vp
+        assert vp.driver_files_ok(), vp.driver_dir()
+        st = vp.status()
+        return "installed=%s active=%s" % (st.get("installed"), st.get("active"))
+
     check("config", t_config)
     check("script-roundtrip", t_script)
     check("script-legacy", t_legacy)
@@ -126,6 +139,8 @@ def _selftest() -> int:
     check("screen-grab", t_grab)
     check("player-dryrun", t_player)
     check("vdisplay", t_vdisplay)
+    check("event-describe", t_describe)
+    check("parsec-bundle", t_parsec)
 
     text = "\n".join(lines)
     print(text)

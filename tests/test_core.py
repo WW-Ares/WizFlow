@@ -278,12 +278,55 @@ def test_preview_conversion():
     return "pil ok"
 
 
+
+
+def test_event_describe():
+    from core.script import describe_event
+    d = describe_event({"type": "event", "event_type": "EM", "action_type": "mouse right up",
+                        "action": [10, 20], "delay": 5, "note": "备注"})
+    assert d["kind"] == "鼠标" and d["action"] == "右键抬起", d
+    assert "X=10" in d["params"] and d["note"] == "备注", d
+    d = describe_event({"type": "event", "event_type": "EK", "action_type": "key down",
+                        "action": [65, "a", 0]})
+    assert d["action"] == "按键按下" and d["params"] == "A", d
+    d = describe_event({"type": "monitor_group", "rules": [1, 2], "match_mode": "all"})
+    assert d["kind"] == "监控组" and "2 条规则" in d["params"], d
+    d = describe_event({"type": "wait", "ms": 500})
+    assert d["kind"] == "等待" and "500" in d["params"], d
+    return "mouse/key/group/wait cn ok"
+
+
+def test_wait_and_script_node():
+    tmp = Path(tempfile.mkdtemp(prefix="kmg_test_"))
+    sub = tmp / "sub.json"
+    sub.write_text('{"scripts":[{"type":"event","event_type":"EM","delay":0,'
+                   '"action_type":"mouse move","action":[30,40]}]}', encoding="utf-8")
+    moves = []
+    p = Player(TemplateMatcher(), lambda t, pr: None, lambda r: None)
+    p.dry_run = True
+    p._move = lambda pos: moves.append(tuple(pos))
+    evs = [{"type": "wait", "ms": 30, "delay": 0},
+           {"type": "script", "path": "sub.json", "wait": True, "delay": 0}]
+    assert p.start(evs, 1, 4.0, script_dir=tmp)
+    wait_player(p)
+    assert moves == [(30, 40)], moves
+    return "wait + script node ok"
+
+
+def test_parsec_bundle():
+    from core import vdisplay_parsec as vp
+    assert vp.driver_files_ok(), vp.driver_dir()
+    st = vp.status()
+    assert "installed" in st and "active" in st, st
+    return "driver files ok, installed=%s active=%s" % (st["installed"], st["active"])
+
 def main():
     tests = [test_monitor_hit_and_anchor, test_monitor_timeout, test_monitor_click_modes,
              test_monitor_key_action, test_hotkey_parse,
              test_recorder_events, test_monitor_run_script_sync, test_keepalive_integrated,
              test_crop_match,
-             test_preview_conversion]
+             test_preview_conversion,
+             test_event_describe, test_wait_and_script_node, test_parsec_bundle]
     failed = 0
     for fn in tests:
         try:
