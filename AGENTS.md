@@ -34,7 +34,6 @@
 
 - `WizFlow.exe`（单文件）
 - `WizFlow-win64-X.Y.Z.zip`（文件夹版）
-- 本地只保留最新一份 zip，旧版删除
 
 ## 发布流程
 
