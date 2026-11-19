@@ -935,6 +935,7 @@ class RulesWindow(ctk.CTkToplevel):
         self._b(rb, "新建关联组", self._add_link, 104, theme.ACCENT, "#04121f")
         self._b(rb, "编辑", self._edit_link, 64)
         self._b(rb, "删除", self._delete_link, 64, theme.DANGER, "white")
+        self._b(rb, "全部消失动作", self._edit_none_actions, 104, theme.PURPLE, "white")
         self.links_scroll = ctk.CTkScrollableFrame(right.body, fg_color=theme.BG2,
                                                    corner_radius=8)
         self.links_scroll.pack(fill="both", expand=True)
@@ -1016,6 +1017,31 @@ class RulesWindow(ctk.CTkToplevel):
             ctk.CTkButton(row, text="编辑", width=44, height=24, fg_color=theme.CARD2,
                           command=lambda rid=r["id"]: self._edit_rule(rid)).pack(side="left", padx=2)
         self.rule_hint.configure(text="%d 条规则；数值越大越先执行" % len(rules))
+
+    def _edit_none_actions(self):
+        from .action_list import ActionList
+        win = ctk.CTkToplevel(self)
+        win.title("全部规则消失时动作")
+        win.geometry("620x520")
+        win.configure(fg_color=theme.BG)
+        win.transient(self)
+        apply_window_icon(win)
+        label(win, "所有常驻规则都不存在时执行（带 grace 宽限）", 11, theme.TEXT).pack(
+            anchor="w", padx=16, pady=(14, 4))
+        al = ActionList(win, self.group.get("on_none_present") or [], height=260)
+        al.pack(fill="both", expand=True, padx=16, pady=6)
+        row = ctk.CTkFrame(win, fg_color="transparent")
+        row.pack(fill="x", padx=16, pady=10)
+
+        def save():
+            self.group["on_none_present"] = al.get()
+            self.status.configure(text="全部消失动作：%d 条" % len(al.get()))
+            win.destroy()
+
+        ctk.CTkButton(row, text="保存", height=34, fg_color=theme.OK,
+                      text_color="#04121f", command=save).pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(row, text="取消", width=80, height=34, fg_color=theme.CARD2,
+                      hover_color=theme.LINE, command=win.destroy).pack(side="left", padx=8)
 
     def _refresh_links(self):
         for w in list(self.links_scroll.winfo_children()):
