@@ -640,6 +640,27 @@ def test_input_actions():
     return "click/wheel/key dry-run ok"
 
 
+def test_window_geometry():
+    from core.window_geometry import rect_visible_enough, center_on_primary, primary_work_area
+    rects = [(0, 0, 1920, 1080), (1920, 0, 1280, 1024)]
+    assert rect_visible_enough(100, 100, 1200, 860, rects)
+    assert not rect_visible_enough(5000, 5000, 1200, 860, rects)
+    assert rect_visible_enough(1800, 200, 1200, 860, rects)
+    px, py, pw, ph = primary_work_area()
+    x, y = center_on_primary(1200, 860)
+    assert px <= x <= px + pw and py <= y <= py + ph
+    return "visible/center ok"
+
+
+def test_hotkey_conflicts():
+    from core.hotkeys import normalize_hotkey, hotkey_conflicts
+    assert normalize_hotkey(" f9 ") == "F9"
+    dup = hotkey_conflicts([("启动/暂停", "F9"), ("停止", "f9"), ("录制", "F10")])
+    assert list(dup) == ["F9"] and len(dup["F9"]) == 2
+    assert hotkey_conflicts([("a", "F6"), ("b", "F7")]) == {}
+    return "case-insensitive conflict ok"
+
+
 def main():
     tests = [test_monitor_hit_and_anchor, test_monitor_timeout, test_monitor_click_modes,
              test_monitor_key_action, test_hotkey_parse,
@@ -650,7 +671,8 @@ def main():
              test_wheel_action, test_wheel_multi_action, test_keygrab_names,
              test_monitor_profile_wheel_roundtrip, test_window_capture,
              test_supervisor_edges, test_pause_reasons,
-             test_inline_node_actions, test_background_rules, test_input_actions]
+             test_inline_node_actions, test_background_rules, test_input_actions,
+             test_window_geometry, test_hotkey_conflicts]
     failed = 0
     for fn in tests:
         try:

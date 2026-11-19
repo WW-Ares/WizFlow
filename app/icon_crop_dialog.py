@@ -10,7 +10,7 @@ from PIL import Image, ImageTk
 from config import ICONS_DIR
 from core.screen import save_png, to_ctk_image
 from . import theme
-from .widgets import entry, label
+from .widgets import center_window, entry, label
 from .window_icon import apply_window_icon
 
 
@@ -319,13 +319,7 @@ class IconCropDialog(ctk.CTkToplevel):
         self.destroy()
 
     def _center(self):
-        try:
-            self.update_idletasks()
-            w, h = self.winfo_width(), self.winfo_height()
-            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-            self.geometry("%dx%d+%d+%d" % (w, h, max(0, (sw - w) // 2), max(0, (sh - h) // 2)))
-        except Exception:
-            pass
+        center_window(self)
 
 
 def to_bgr(pil):

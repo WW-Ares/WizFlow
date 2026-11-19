@@ -58,6 +58,21 @@ def parse_hotkey(text: str) -> tuple[int, int] | None:
     return mods, vk
 
 
+def normalize_hotkey(text: str) -> str:
+    return str(text or "").strip().upper()
+
+
+def hotkey_conflicts(items: list[tuple[str, str]]) -> dict[str, list[str]]:
+    """items = [(动作名, 热键)]；返回 {热键: [重复的动作名]}。"""
+    groups: dict[str, list[str]] = {}
+    for label, key in items:
+        k = normalize_hotkey(key)
+        if not k:
+            continue
+        groups.setdefault(k, []).append(str(label))
+    return {k: names for k, names in groups.items() if len(names) > 1}
+
+
 class HotkeyManager(threading.Thread):
     def __init__(self, bindings: dict[str, Callable[[], None]],
                  on_error: Callable[[str], None] | None = None) -> None:

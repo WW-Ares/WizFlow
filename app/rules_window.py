@@ -19,7 +19,7 @@ from .icon_crop_dialog import IconCropDialog
 from .point_picker import PointPicker
 from .area_select_dialog import AreaSelectDialog
 from .window_icon import apply_window_icon
-from .widgets import Card, entry, label
+from .widgets import Card, center_window, entry, label
 
 ACTION_TYPES = [
     ("click", "单击 / 双击 / 长按"),
@@ -55,37 +55,6 @@ TARGET_DISP = {"当前脚本": "current", "指定脚本": "script"}
 TARGET_REV = {v: k for k, v in TARGET_DISP.items()}
 BUSY_DISP = {"切换": "switch", "忽略": "ignore"}
 BUSY_REV = {v: k for k, v in BUSY_DISP.items()}
-
-
-def action_summary(a: dict) -> str:
-    t = str(a.get("type", ""))
-    if t == "click":
-        b = {"left": "左键", "right": "右键", "middle": "中键", "x1": "X1", "x2": "X2"}.get(
-            str(a.get("button", "left")), "左键")
-        n = int(a.get("clicks", 1) or 1)
-        if n >= 2:
-            return "%s%d击" % (b, n)
-        hold = int(a.get("hold_ms", 40) or 40)
-        return "%s单击" % b if hold < 500 else "%s长按%dms" % (b, hold)
-    if t == "long_press":
-        return "长按%dms" % int(a.get("hold_ms", 1000) or 1000)
-    if t == "key":
-        return "按键 %s" % a.get("keys", "")
-    if t == "script":
-        return "脚本 %s" % Path(str(a.get("path", ""))).name
-    if t == "wait":
-        return "等待 %dms" % int(a.get("ms", 200) or 200)
-    if t == "text":
-        return "输入文本"
-    if t == "move":
-        return "移动到图标"
-    if t == "drag":
-        return "拖拽"
-    if t == "notify":
-        return "通知"
-    if t == "stop":
-        return "停止"
-    return TYPE_NAMES.get(t, t)
 
 
 class ActionDialog(ctk.CTkToplevel):
@@ -405,13 +374,7 @@ class ActionDialog(ctk.CTkToplevel):
             self.vars["offset_y"].set(str(int(y)))
 
     def _center(self):
-        try:
-            self.update_idletasks()
-            w, h = self.winfo_width(), self.winfo_height()
-            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-            self.geometry("%dx%d+%d+%d" % (w, h, max(0, (sw - w) // 2), max(0, (sh - h) // 2)))
-        except Exception:
-            pass
+        center_window(self)
 
 
 class RuleDialog(ctk.CTkToplevel):
@@ -846,13 +809,7 @@ class RuleDialog(ctk.CTkToplevel):
         self.destroy()
 
     def _center(self):
-        try:
-            self.update_idletasks()
-            w, h = self.winfo_width(), self.winfo_height()
-            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-            self.geometry("%dx%d+%d+%d" % (w, h, max(0, (sw - w) // 2), max(0, (sh - h) // 2)))
-        except Exception:
-            pass
+        center_window(self)
 
 
 class LinkDialog(ctk.CTkToplevel):
@@ -919,13 +876,7 @@ class LinkDialog(ctk.CTkToplevel):
         self.destroy()
 
     def _center(self):
-        try:
-            self.update_idletasks()
-            w, h = self.winfo_width(), self.winfo_height()
-            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-            self.geometry("%dx%d+%d+%d" % (w, h, max(0, (sw - w) // 2), max(0, (sh - h) // 2)))
-        except Exception:
-            pass
+        center_window(self)
 
 
 class RulesWindow(ctk.CTkToplevel):
@@ -1341,13 +1292,7 @@ class RulesWindow(ctk.CTkToplevel):
         self.status.configure(text="已插入当前脚本", text_color=theme.OK)
 
     def _center(self):
-        try:
-            self.update_idletasks()
-            w, h = self.winfo_width(), self.winfo_height()
-            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-            self.geometry("%dx%d+%d+%d" % (w, h, max(0, (sw - w) // 2), max(0, (sh - h) // 2)))
-        except Exception:
-            pass
+        center_window(self)
 
 
 
@@ -1405,10 +1350,4 @@ class IconPickerDialog(ctk.CTkToplevel):
             self.on_pick(path)
 
     def _center(self):
-        try:
-            self.update_idletasks()
-            w, h = self.winfo_width(), self.winfo_height()
-            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-            self.geometry("%dx%d+%d+%d" % (w, h, max(0, (sw - w) // 2), max(0, (sh - h) // 2)))
-        except Exception:
-            pass
+        center_window(self)

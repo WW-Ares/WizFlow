@@ -8,6 +8,7 @@ import tkinter as tk
 import customtkinter as ctk
 
 from config import CONFIG_FILE, ICONS_DIR, LOGS_DIR, ROOT
+from core.hotkeys import hotkey_conflicts, normalize_hotkey
 from . import theme
 from .widgets import Card, KeyCaptureEntry, label
 
@@ -139,14 +140,10 @@ class SettingsPageMixin:
 
     def _check_hotkey_dup(self):
         names = {"start_pause": "启动/暂停", "stop": "停止", "record": "录制"}
-        groups = {}
-        for k, v in self.hk_vars.items():
-            val = v.get().strip().upper()
-            if val:
-                groups.setdefault(val, []).append(names[k])
-        dup = {v: ns for v, ns in groups.items() if len(ns) > 1}
+        vals = {k: normalize_hotkey(v.get()) for k, v in self.hk_vars.items()}
+        dup = hotkey_conflicts([(names[k], vals[k]) for k in vals])
         for k, ent in getattr(self, "hk_entries", {}).items():
-            val = self.hk_vars[k].get().strip().upper()
+            val = vals.get(k, "")
             try:
                 ent.configure(border_color=theme.DANGER if val in dup else theme.LINE)
             except Exception:
@@ -164,15 +161,12 @@ class SettingsPageMixin:
 
     def _apply_hotkeys(self):
         names = {"start_pause": "启动/暂停", "stop": "停止", "record": "录制"}
-        vals = {k: v.get().strip().upper() for k, v in self.hk_vars.items()}
+        vals = {k: normalize_hotkey(v.get()) for k, v in self.hk_vars.items()}
         empty = [names[k] for k, v in vals.items() if not v]
         if empty:
             self._toast("请先设置热键：%s" % "、".join(empty), "warn")
             return
-        groups = {}
-        for k, v in vals.items():
-            groups.setdefault(v, []).append(names[k])
-        dup = {v: ns for v, ns in groups.items() if len(ns) > 1}
+        dup = hotkey_conflicts([(names[k], vals[k]) for k in vals])
         if dup:
             detail = "；".join("%s 同时用于 %s" % (k, "、".join(ns))
                                for k, ns in dup.items())

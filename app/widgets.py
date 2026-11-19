@@ -10,6 +10,17 @@ from core.keygrab import MOD_VKS, KeyGrabber
 from . import theme
 
 
+def center_window(win) -> None:
+    """把 Toplevel 居中到主屏（保持当前尺寸）。"""
+    try:
+        win.update_idletasks()
+        w, h = win.winfo_width(), win.winfo_height()
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        win.geometry("%dx%d+%d+%d" % (w, h, max(0, (sw - w) // 2), max(0, (sh - h) // 2)))
+    except Exception:
+        pass
+
+
 class Card(ctk.CTkFrame):
     def __init__(self, master, title: str = "", subtitle: str = "", **kwargs):
         kwargs.setdefault("fg_color", theme.CARD)

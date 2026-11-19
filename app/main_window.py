@@ -18,7 +18,7 @@ from . import theme
 from .hud import HudWindow
 from .tray import TrayIcon
 from core.actions import execute_input
-from core.hotkeys import HotkeyManager
+from core.hotkeys import HotkeyManager, hotkey_conflicts, normalize_hotkey
 from core.log import log
 from core.monitor import MonitorProfile
 from core.player import Player
@@ -26,6 +26,7 @@ from core.recorder import Recorder
 from core.screen import TemplateMatcher
 from core.rules import BackgroundRuleEngine
 from core.vdisplay import keepalive
+from core.window_geometry import center_on_primary, rect_visible_enough
 from core.winapi import is_admin, set_awake
 from .page_monitor import MonitorPageMixin
 from .page_record import RecordPageMixin
@@ -362,40 +363,6 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         elif action == "quit":
             self._quit_app()
 
-    def _primary_work_area(self):
-        import ctypes
-
-        class RECT(ctypes.Structure):
-            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
-                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
-
-        r = RECT()
-        try:
-            ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(r), 0)
-            return int(r.left), int(r.top), int(r.right - r.left), int(r.bottom - r.top)
-        except Exception:
-            return 0, 0, 1920, 1080
-
-    def _monitor_rects(self):
-        try:
-            import mss
-            with mss.mss() as sct:
-                return [(int(m["left"]), int(m["top"]), int(m["width"]), int(m["height"]))
-                        for m in sct.monitors[1:]]
-        except Exception:
-            return []
-
-    def _rect_visible_enough(self, x, y, w=1200, h=860):
-        rects = self._monitor_rects()
-        if not rects:
-            return True
-        for mx, my, mw, mh in rects:
-            ix = max(0, min(x + w, mx + mw) - max(x, mx))
-            iy = max(0, min(y + h, my + mh) - max(y, my))
-            if ix * iy >= 0.4 * w * h:
-                return True
-        return False
-
     def _restore_window_rect(self):
         w, h = 1200, 860
         rect = self.cfg.get("window_rect", None) or {}
@@ -404,10 +371,8 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             x, y = int(rect.get("x")), int(rect.get("y"))
         except Exception:
             x = y = None
-        if x is None or not self._rect_visible_enough(x, y, w, h):
-            px, py, pw, ph = self._primary_work_area()
-            x = px + max(0, (pw - w) // 2)
-            y = py + max(0, (ph - h) // 2)
+        if x is None or not rect_visible_enough(x, y, w, h):
+            x, y = center_on_primary(w, h)
         self.geometry("%dx%d+%d+%d" % (w, h, x, y))
 
     def _save_window_rect(self):
@@ -479,20 +444,20 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             except Exception:
                 pass
         entries = [
-            ("启动/暂停", str(self.cfg.get("hotkeys.start_pause", "F6")).strip().upper(), "start_pause"),
-            ("停止", str(self.cfg.get("hotkeys.stop", "F7")).strip().upper(), "stop"),
-            ("录制", str(self.cfg.get("hotkeys.record", "F8")).strip().upper(), "record"),
+            ("启动/暂停", normalize_hotkey(self.cfg.get("hotkeys.start_pause", "F6")), "start_pause"),
+            ("停止", normalize_hotkey(self.cfg.get("hotkeys.stop", "F7")), "stop"),
+            ("录制", normalize_hotkey(self.cfg.get("hotkeys.record", "F8")), "record"),
         ]
-        seen = {}
         for disp, key, _act in entries:
             if not key:
                 self._toast("热键不能为空：%s" % disp, "warn")
                 return
-            if key in seen:
-                self._toast("热键冲突：%s 同时用于「%s」和「%s」，请先改键"
-                            % (key, seen[key], disp), "warn")
-                return
-            seen[key] = disp
+        dup = hotkey_conflicts([(disp, key) for disp, key, _act in entries])
+        if dup:
+            key, labels = next(iter(dup.items()))
+            self._toast("热键冲突：%s 同时用于「%s」，请先改键"
+                        % (key, "」「".join(labels)), "warn")
+            return
         bindings = {key: (lambda a=act: self.ui_queue.put(("hotkey", a)))
                     for _disp, key, act in entries}
         self.hotkeys = HotkeyManager(bindings, on_error=lambda m: self.ui_queue.put(("toast", m, "warn")))
