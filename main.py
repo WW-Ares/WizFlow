@@ -171,6 +171,61 @@ def _selftest() -> int:
         finally:
             root.destroy()
 
+    def t_supervisor():
+        import core.supervisor as sup_mod
+        from core.supervisor import ScriptSupervisor
+        c = Config(tmp / "sup.json")
+        assert c.get("script_supervisor.appear") == "none"
+        c.set("script_supervisor.appear", "pause")
+        c.set("script_supervisor.disappear", "resume")
+        c.save()
+        assert Config(tmp / "sup.json").get("script_supervisor.disappear") == "resume"
+
+        frame = np.zeros((120, 160, 3), np.uint8)
+        cv2.rectangle(frame, (40, 30), (80, 70), (0, 200, 255), -1)
+        cv2.circle(frame, (60, 50), 8, (255, 40, 40), -1)
+        tpl = frame[30:71, 40:81].copy()
+        tp = tmp / "sup_tpl.png"
+        save_png(tpl, tp)
+        state = {"on": False}
+
+        class FakeSource:
+            origin = (0, 0)
+
+            def grab(self, region):
+                return frame.copy() if state["on"] else np.zeros_like(frame)
+
+            def close(self):
+                pass
+
+        orig = sup_mod.make_source
+        sup_mod.make_source = lambda cfg: FakeSource()
+        actions = []
+        cfg = {"enabled": True, "template": str(tp), "threshold": 0.9,
+               "poll_ms": 10, "stable_frames": 2, "cooldown_ms": 0,
+               "appear": "pause", "disappear": "resume", "run_script": "",
+               "region": [0, 0, 160, 120], "capture_mode": "screen",
+               "window_hwnd": 0, "window_title": "", "window_class": "",
+               "window_process": ""}
+        s = ScriptSupervisor(lambda: dict(cfg), lambda a, t: actions.append(a))
+        try:
+            s.start()
+            state["on"] = True
+            end = time.time() + 3
+            while time.time() < end and not s.status()["present"]:
+                time.sleep(0.02)
+            state["on"] = False
+            end = time.time() + 3
+            while time.time() < end and s.status()["present"]:
+                time.sleep(0.02)
+            time.sleep(0.1)
+            assert actions[:2] == ["pause", "resume"], actions
+            return "appear/disappear %s" % actions[:2]
+        finally:
+            s.stop()
+            s.join(timeout=2)
+            sup_mod.make_source = orig
+
     check("config", t_config)
     check("script-roundtrip", t_script)
     check("script-legacy", t_legacy)
@@ -180,6 +235,7 @@ def _selftest() -> int:
     check("vdisplay", t_vdisplay)
     check("event-describe", t_describe)
     check("parsec-bundle", t_parsec)
+    check("supervisor", t_supervisor)
     check("window-capture", t_capture)
 
     text = "\n".join(lines)

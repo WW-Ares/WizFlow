@@ -36,6 +36,11 @@ STYLE_MAP = {"单击": "single", "双击": "double", "长按": "long",
 MODE_MAP = {"图标中心": "center", "固定位置": "fixed", "偏移跟随": "follow"}
 CLICK_STYLES = ["单击", "双击", "长按"]
 WHEEL_STYLES = ["上滚动", "下滚动"]
+SUP_APPEAR = {"无": "none", "暂停主脚本": "pause", "停止主脚本": "stop", "运行脚本": "run"}
+SUP_APPEAR_REV = {v: k for k, v in SUP_APPEAR.items()}
+SUP_DISAPPEAR = {"无": "none", "继续主脚本": "resume", "停止主脚本": "stop", "运行脚本": "run"}
+SUP_DISAPPEAR_REV = {v: k for k, v in SUP_DISAPPEAR.items()}
+
 
 
 class MonitorPageMixin:
@@ -364,6 +369,61 @@ class MonitorPageMixin:
                                                     corner_radius=8)
         self.icons_scroll.pack(fill="both", expand=True, pady=(8, 0))
 
+        sup_card = Card(page, "后台监控", "图案出现 / 消失时控制主脚本")
+        sup_card.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        sb = sup_card.body
+        r1 = ctk.CTkFrame(sb, fg_color="transparent")
+        r1.pack(fill="x")
+        self.sup_var = tk.BooleanVar(value=bool(self.cfg.get("script_supervisor.enabled", False)))
+        ctk.CTkSwitch(r1, text="启用后台监控", variable=self.sup_var,
+                      font=(theme.FONT, theme.fs(10)), progress_color=theme.ACCENT,
+                      command=self._toggle_supervisor).pack(side="left")
+        label(r1, "图案", 9).pack(side="left", padx=(12, 0))
+        self.sup_template_var = tk.StringVar(value="（未选择）")
+        self.sup_template_menu = ctk.CTkOptionMenu(
+            r1, variable=self.sup_template_var, values=["（未选择）"], width=150, height=26,
+            fg_color=theme.CARD2, button_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
+            command=lambda _v: self._sup_sync())
+        self.sup_template_menu.pack(side="left", padx=4)
+        ctk.CTkButton(r1, text="同步当前方案", width=100, height=26, fg_color=theme.CARD2,
+                      hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
+                      command=self._sup_sync_scheme).pack(side="left", padx=6)
+        self.sup_status = label(r1, "状态：未启用", 9, theme.MUTED)
+        self.sup_status.pack(side="left", padx=8)
+
+        r2 = ctk.CTkFrame(sb, fg_color="transparent")
+        r2.pack(fill="x", pady=(6, 0))
+        label(r2, "出现时", 9).pack(side="left")
+        self.sup_appear_var = tk.StringVar(value="无")
+        ctk.CTkOptionMenu(r2, variable=self.sup_appear_var,
+                          values=["无", "暂停主脚本", "停止主脚本", "运行脚本"],
+                          width=110, height=26, fg_color=theme.CARD2, button_color=theme.LINE,
+                          font=(theme.FONT, theme.fs(9)),
+                          command=lambda _v: self._sup_sync()).pack(side="left", padx=4)
+        label(r2, "消失时", 9).pack(side="left", padx=(10, 0))
+        self.sup_disappear_var = tk.StringVar(value="无")
+        ctk.CTkOptionMenu(r2, variable=self.sup_disappear_var,
+                          values=["无", "继续主脚本", "停止主脚本", "运行脚本"],
+                          width=110, height=26, fg_color=theme.CARD2, button_color=theme.LINE,
+                          font=(theme.FONT, theme.fs(9)),
+                          command=lambda _v: self._sup_sync()).pack(side="left", padx=4)
+        label(r2, "脚本", 9).pack(side="left", padx=(10, 0))
+        self.sup_script_var = tk.StringVar(value="（无脚本）")
+        self.sup_script_menu = ctk.CTkOptionMenu(
+            r2, variable=self.sup_script_var, values=["（无脚本）"], width=140, height=26,
+            fg_color=theme.CARD2, button_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
+            command=lambda _v: self._sup_sync())
+        self.sup_script_menu.pack(side="left", padx=4)
+        label(r2, "稳定帧", 9).pack(side="left", padx=(8, 0))
+        self.sup_stable_var = tk.StringVar(value="2")
+        entry(r2, width=40, textvariable=self.sup_stable_var).pack(side="left", padx=2)
+        label(r2, "冷却ms", 9).pack(side="left", padx=(8, 0))
+        self.sup_cooldown_var = tk.StringVar(value="500")
+        entry(r2, width=52, textvariable=self.sup_cooldown_var).pack(side="left", padx=2)
+        self._refresh_supervisor_menus()
+        self._load_supervisor_ui()
+        self.after(1000, self._sup_status_tick)
+
         params = Card(page, "监控参数", "命中后位置同步")
         params.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(6, 0))
         body = params.body
@@ -616,6 +676,135 @@ class MonitorPageMixin:
         r += 1
         label(body, "回放遇到该节点：轮询区域 → 命中即点击图标中心 → 继续脚本",
               9).grid(row=r, column=0, columnspan=2, sticky="w")
+
+    # ------------------------------------------------------------ 后台监控
+    def _refresh_supervisor_menus(self):
+        if not hasattr(self, "sup_template_menu"):
+            return
+        names = []
+        self._sup_icon_map = {}
+        for ext in ("*.png", "*.jpg", "*.jpeg", "*.bmp"):
+            for p in ICONS_DIR.glob(ext):
+                names.append(p.name)
+                self._sup_icon_map[p.name] = self._icon_rel(p)
+        names.sort()
+        self.sup_template_menu.configure(values=["（未选择）"] + names)
+        cur = str(self.cfg.get("script_supervisor.template", "") or "")
+        if cur and Path(cur).name in names:
+            self.sup_template_var.set(Path(cur).name)
+        else:
+            self.sup_template_var.set("（未选择）")
+
+        snames = ["（无脚本）"] + [p.name for p in list_scripts()]
+        self.sup_script_menu.configure(values=snames)
+        cur_s = str(self.cfg.get("script_supervisor.run_script", "") or "")
+        if cur_s and Path(cur_s).name in snames:
+            self.sup_script_var.set(Path(cur_s).name)
+        else:
+            self.sup_script_var.set("（无脚本）")
+
+    def _load_supervisor_ui(self):
+        c = self.cfg.get("script_supervisor", {}) or {}
+        self.sup_var.set(bool(c.get("enabled", False)))
+        self.sup_appear_var.set(SUP_APPEAR_REV.get(str(c.get("appear", "none")), "无"))
+        self.sup_disappear_var.set(SUP_DISAPPEAR_REV.get(str(c.get("disappear", "none")), "无"))
+        self.sup_stable_var.set(str(c.get("stable_frames", 2)))
+        self.sup_cooldown_var.set(str(c.get("cooldown_ms", 500)))
+
+    def _sup_sync(self):
+        if not hasattr(self, "sup_var"):
+            return
+        name = self.sup_template_var.get()
+        template = ""
+        if name and name not in ("（未选择）", "（无）"):
+            template = getattr(self, "_sup_icon_map", {}).get(name, "icons/" + name)
+        sname = self.sup_script_var.get()
+        script = "scripts/" + sname if sname and sname != "（无脚本）" else ""
+        try:
+            stable = max(1, int(float(self.sup_stable_var.get() or 2)))
+        except Exception:
+            stable = 2
+        try:
+            cooldown = max(0, int(float(self.sup_cooldown_var.get() or 500)))
+        except Exception:
+            cooldown = 500
+        patch = {
+            "enabled": bool(self.sup_var.get()),
+            "template": template,
+            "appear": SUP_APPEAR.get(self.sup_appear_var.get(), "none"),
+            "disappear": SUP_DISAPPEAR.get(self.sup_disappear_var.get(), "none"),
+            "run_script": script,
+            "stable_frames": stable,
+            "cooldown_ms": cooldown,
+        }
+        for k, v in patch.items():
+            self.cfg.set("script_supervisor." + k, v)
+        self.cfg.save()
+
+    def _toggle_supervisor(self):
+        on = bool(self.sup_var.get())
+        if on:
+            c = self.cfg.get("script_supervisor", {}) or {}
+            region = list(c.get("region") or [0, 0, 0, 0])
+            if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
+                self._sup_sync_scheme(silent=True)
+                c = self.cfg.get("script_supervisor", {}) or {}
+                region = list(c.get("region") or [0, 0, 0, 0])
+            if not str(c.get("template", "") or "") and self.monitor_profile.template:
+                self.cfg.set("script_supervisor.template", self.monitor_profile.template)
+                self.cfg.save()
+                self._refresh_supervisor_menus()
+            if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
+                self.sup_var.set(False)
+                self._sup_sync()
+                self._toast("先在左侧框选监控区域，再启用后台监控", "warn")
+                return
+        self._sup_sync()
+        self._toast("后台监控已开启" if on else "后台监控已关闭", "ok" if on else "info")
+
+    def _sup_sync_scheme(self, silent=False):
+        p = self.monitor_profile
+        region = list(p.region or [0, 0, 0, 0])
+        if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
+            if not silent:
+                self._toast("当前方案还没有框选监控区域", "warn")
+            return
+        patch = {
+            "region": region,
+            "capture_mode": p.capture_mode,
+            "window_title": p.window_title,
+            "window_class": p.window_class,
+            "window_process": p.window_process,
+            "window_hwnd": int(p.window_hwnd or 0),
+            "threshold": float(p.threshold),
+            "poll_ms": max(20, int(p.poll_ms)),
+        }
+        if p.template:
+            patch["template"] = p.template
+        for k, v in patch.items():
+            self.cfg.set("script_supervisor." + k, v)
+        self.cfg.save()
+        self._refresh_supervisor_menus()
+        if not silent:
+            self._toast("已同步当前方案：区域、抓屏方式与图案", "ok")
+
+    def _sup_status_tick(self):
+        try:
+            sup = getattr(self, "supervisor", None)
+            if sup is not None:
+                st = sup.status()
+                if not st.get("enabled"):
+                    text, color = "状态：未启用", theme.MUTED
+                elif st.get("error"):
+                    text, color = "状态：%s" % str(st["error"])[:36], theme.WARN
+                elif st.get("present"):
+                    text, color = "状态：已出现 · %.2f" % float(st.get("score", 0)), theme.OK
+                else:
+                    text, color = "状态：监控中 · %.2f" % float(st.get("score", 0)), theme.ACCENT
+                self.sup_status.configure(text=text, text_color=color)
+        except Exception:
+            pass
+        self.after(1000, self._sup_status_tick)
 
     # ------------------------------------------------------------ 区域/图标
     def _capture_mode(self) -> str:
@@ -899,6 +1088,7 @@ class MonitorPageMixin:
                 self.icon_selected_label.configure(text="当前模板：%s" % path.name)
         for c in range(3):
             self.icons_scroll.grid_columnconfigure(c, weight=1)
+        self._refresh_supervisor_menus()
 
     def _select_icon(self, path: Path):
         self._selected_icon = str(path)
@@ -948,6 +1138,7 @@ class MonitorPageMixin:
         if self.monitor_profile.script_anchor:
             self.anchor_x_var.set(str(self.monitor_profile.script_anchor[0]))
             self.anchor_y_var.set(str(self.monitor_profile.script_anchor[1]))
+        self._refresh_supervisor_menus()
 
     def _on_threshold(self):
         v = float(self.threshold_var.get())

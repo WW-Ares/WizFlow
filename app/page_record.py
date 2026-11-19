@@ -672,18 +672,54 @@ class RecordPageMixin:
                                   % (len(self.events), loops or "∞", speed))
             self._toast("脚本开始运行", "ok")
 
-    def _pause_play(self):
+    def _pause_play(self, rule: bool = False):
         if not self.player.running:
             return
+        if not rule:
+            self._rule_paused = False
         paused = self.player.toggle_pause()
         if paused:
+            if rule:
+                self._rule_paused = True
             self.play_pill.set("已暂停", theme.WARN)
             self._set_header("已暂停", theme.WARN)
-            self._append_play_log("已暂停")
+            self._append_play_log("已暂停（后台监控）" if rule else "已暂停")
         else:
+            self._rule_paused = False
             self.play_pill.set("运行中", theme.OK)
             self._set_header("回放中", theme.ACCENT)
             self._append_play_log("继续运行")
+
+    def _resume_play(self):
+        if not self.player.running or not self.player.paused:
+            self._rule_paused = False
+            return
+        self.player.resume()
+        self._rule_paused = False
+        self.play_pill.set("运行中", theme.OK)
+        self._set_header("回放中", theme.ACCENT)
+        self._append_play_log("继续运行（后台监控）")
+
+    def _run_script_file(self, name: str):
+        name = (name or "").strip()
+        if not name:
+            return
+        if self.player.running:
+            self._toast("后台监控：主脚本正在运行，忽略启动新脚本", "warn")
+            return
+        path = Path(name)
+        if not path.is_absolute():
+            path = SCRIPTS_DIR / name
+        try:
+            doc = ScriptDoc.load(path)
+        except Exception as exc:
+            self._toast("后台监控脚本加载失败：%s" % exc, "error")
+            return
+        self.script_path = path
+        self.events = doc.events
+        self._rebuild_events()
+        self._toast("后台监控启动脚本：%s" % path.name, "ok")
+        self._toggle_play()
 
     def _stop_play(self):
         self.player.stop()
@@ -699,6 +735,7 @@ class RecordPageMixin:
             self.play_pill.set(text[:16], theme.OK if "运行" in text else theme.MUTED)
 
     def _apply_player_done(self, reason: str):
+        self._rule_paused = False
         self.btn_play.configure(text="▶  启动    F6")
         self._set_header("待机", theme.OK)
         if reason == "finished":

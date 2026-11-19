@@ -143,8 +143,17 @@ class TemplateMatcher:
                 cur = cv2.resize(tpl, (nw, nh), interpolation=cv2.INTER_AREA)
             if cur.shape[0] > gh or cur.shape[1] > gw:
                 continue
-            res = cv2.matchTemplate(gray, cur, cv2.TM_CCOEFF_NORMED)
-            _min, mx, _minloc, maxloc = cv2.minMaxLoc(res)
+            if float(cur.std()) < 1e-3:
+                # 纯色模板在 TM_CCOEFF_NORMED 下分母为 0，会恒等 1.0，改用平方差
+                res = cv2.matchTemplate(gray, cur, cv2.TM_SQDIFF_NORMED)
+                mn, _mx, minloc, _maxloc = cv2.minMaxLoc(res)
+                mx = max(0.0, 1.0 - float(mn))
+                maxloc = minloc
+            else:
+                res = cv2.matchTemplate(gray, cur, cv2.TM_CCOEFF_NORMED)
+                _min, mx, _minloc, maxloc = cv2.minMaxLoc(res)
+            if not np.isfinite(mx):
+                continue
             if mx > best.score:
                 best = MatchResult(float(mx), int(maxloc[0]), int(maxloc[1]),
                                    int(cur.shape[1]), int(cur.shape[0]), float(sc))

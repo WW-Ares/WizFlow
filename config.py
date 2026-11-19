@@ -11,7 +11,7 @@ from pathlib import Path
 
 APP_NAME = "WizFlow"
 APP_ID = "WizFlow.Desktop"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 
 
 def app_dir() -> Path:
@@ -52,6 +52,23 @@ DEFAULTS = {
             "alpha": 1.0, "click_through": False},
     "keep_awake": True,
     "last_script": "",
+    "script_supervisor": {
+        "enabled": False,
+        "template": "",
+        "threshold": 0.85,
+        "poll_ms": 150,
+        "stable_frames": 2,
+        "cooldown_ms": 500,
+        "appear": "none",
+        "disappear": "none",
+        "run_script": "",
+        "region": [0, 0, 0, 0],
+        "capture_mode": "screen",
+        "window_title": "",
+        "window_class": "",
+        "window_process": "",
+        "window_hwnd": 0,
+    },
     "monitor_schemes": [],
     "active_scheme": "",
     "multi_monitor": {

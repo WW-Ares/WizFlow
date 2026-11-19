@@ -70,6 +70,20 @@ class Player:
         self._stop.set()
         self._paused.clear()
 
+    def pause(self) -> bool:
+        if not self.running:
+            return False
+        self._paused.set()
+        self.paused = True
+        return True
+
+    def resume(self) -> bool:
+        if not self.running:
+            return False
+        self._paused.clear()
+        self.paused = False
+        return True
+
     def toggle_pause(self) -> bool:
         if not self.running:
             return False

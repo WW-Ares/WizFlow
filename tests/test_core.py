@@ -435,6 +435,60 @@ def test_window_capture():
     finally:
         root.destroy()
 
+def test_supervisor_edges():
+    import core.supervisor as sup_mod
+    from core.supervisor import ScriptSupervisor
+
+    tmp = Path(tempfile.mkdtemp(prefix="kmg_sup_"))
+    frame = make_frame()
+    tpl = frame[60:91, 80:121].copy()
+    tpl_path = tmp / "sup.png"
+    save_png(tpl, tpl_path)
+
+    state = {"present": False}
+
+    class FakeSource:
+        origin = (0, 0)
+
+        def grab(self, region):
+            return frame.copy() if state["present"] else np.zeros_like(frame)
+
+        def close(self):
+            pass
+
+    orig = sup_mod.make_source
+    sup_mod.make_source = lambda cfg: FakeSource()
+    actions = []
+    cfg = {
+        "enabled": True, "template": str(tpl_path), "threshold": 0.9,
+        "poll_ms": 10, "stable_frames": 2, "cooldown_ms": 0,
+        "appear": "pause", "disappear": "resume", "run_script": "",
+        "region": [0, 0, 200, 150], "capture_mode": "screen",
+        "window_hwnd": 0, "window_title": "", "window_class": "",
+        "window_process": "",
+    }
+    s = ScriptSupervisor(lambda: dict(cfg), lambda a, t: actions.append(a))
+    try:
+        s.start()
+        state["present"] = True
+        end = time.time() + 3
+        while time.time() < end and not s.status()["present"]:
+            time.sleep(0.02)
+        assert s.status()["present"] is True, s.status()
+        state["present"] = False
+        end = time.time() + 3
+        while time.time() < end and s.status()["present"]:
+            time.sleep(0.02)
+        time.sleep(0.1)
+        assert s.status()["present"] is False, s.status()
+        assert actions[:2] == ["pause", "resume"], actions
+        return "appear/disappear fired %s" % actions[:2]
+    finally:
+        s.stop()
+        s.join(timeout=2)
+        sup_mod.make_source = orig
+
+
 def main():
     tests = [test_monitor_hit_and_anchor, test_monitor_timeout, test_monitor_click_modes,
              test_monitor_key_action, test_hotkey_parse,
@@ -443,7 +497,8 @@ def main():
              test_preview_conversion,
              test_event_describe, test_wait_and_script_node, test_parsec_bundle,
              test_wheel_action, test_wheel_multi_action, test_keygrab_names,
-             test_monitor_profile_wheel_roundtrip, test_window_capture]
+             test_monitor_profile_wheel_roundtrip, test_window_capture,
+             test_supervisor_edges]
     failed = 0
     for fn in tests:
         try:
