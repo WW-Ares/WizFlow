@@ -332,6 +332,9 @@ def execute_input(action: dict, center=None, stop_event=None, dry_run: bool = Fa
         return "ok" if _input_wait(_num(action.get("ms", 200), 200), stop_event) else "stopped"
     if t in ("click", "long_press", "wheel", "move", "drag", "key"):
         return _input_action(action, center, stop_event, dry_run)
+    if t == "text":
+        type_text(str(action.get("text", "") or ""))
+        return "ok"
     if t == "notify":
         log("规则通知: %s" % (action.get("text", "") or ""))
         return "ok"
@@ -417,6 +420,33 @@ def _input_action(action, center, stop_event, dry_run) -> str:
         set_cursor_pos(x, y)
     if t == "move":
         return "ok"
+    if t == "drag":
+        mode = str(action.get("to_mode", "offset"))
+        if mode == "absolute":
+            p = action.get("to") or [0, 0]
+            end = (_num(p[0]), _num(p[1]))
+        else:
+            end = (x + _num(action.get("offset_x", 0)),
+                   y + _num(action.get("offset_y", 0)))
+        duration = max(10, _num(action.get("duration_ms", 300), 300))
+        steps = max(2, min(120, _num(action.get("steps", 20), 20)))
+        button = str(action.get("button", "left")).lower()
+        if not dry_run:
+            mouse_down(button)
+        for i in range(1, steps + 1):
+            if stop_event is not None and stop_event.is_set():
+                if not dry_run:
+                    mouse_up(button)
+                return "stopped"
+            tt = i / steps
+            px = int(x + (end[0] - x) * tt)
+            py = int(y + (end[1] - y) * tt)
+            if not dry_run:
+                set_cursor_pos(px, py)
+            time.sleep(max(0.005, duration / 1000.0 / steps))
+        if not dry_run:
+            mouse_up(button)
+        return "ok"
     if t == "wheel":
         direction = str(action.get("direction", "up")).lower()
         delta = 120 if direction == "up" else -120
@@ -451,4 +481,35 @@ def _input_action(action, center, stop_event, dry_run) -> str:
         if i + 1 < clicks and interval and not _input_wait(interval, stop_event):
             return "stopped"
     return "ok"
+
+def type_text(text: str) -> None:
+    """通过 SendInput 发送 Unicode 文本，支持中文和表情。"""
+    if not text:
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    ULONG_PTR = ctypes.c_size_t
+
+    class KEYBDINPUT(ctypes.Structure):
+        _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD),
+                    ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD),
+                    ("dwExtraInfo", ULONG_PTR)]
+
+    class INPUT(ctypes.Structure):
+        class _I(ctypes.Union):
+            _fields_ = [("ki", KEYBDINPUT)]
+        _anonymous_ = ("i",)
+        _fields_ = [("type", wintypes.DWORD), ("i", _I)]
+
+    units = text.encode("utf-16-le")
+    seq = [int.from_bytes(units[i:i + 2], "little") for i in range(0, len(units), 2)]
+    u32 = ctypes.WinDLL("user32", use_last_error=True)
+    u32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+    for unit in seq:
+        down = INPUT(type=1, i=INPUT._I(ki=KEYBDINPUT(0, unit, 0x0004, 0, 0)))
+        up = INPUT(type=1, i=INPUT._I(ki=KEYBDINPUT(0, unit, 0x0004 | 0x0002, 0, 0)))
+        u32.SendInput(1, ctypes.byref(down), ctypes.sizeof(INPUT))
+        u32.SendInput(1, ctypes.byref(up), ctypes.sizeof(INPUT))
+        time.sleep(0.005)
 

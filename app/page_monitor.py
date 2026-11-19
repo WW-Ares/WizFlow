@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import datetime
+import cv2
 import shutil
 import json
 import threading
@@ -19,8 +20,9 @@ from config import ICONS_DIR, ROOT
 from . import theme
 from core.capture import (CaptureError, client_rect_screen, find_window, make_source,
                           window_is_fullscreen)
+from core.log import log
 from core.monitor import LiveMonitor, MonitorProfile, ProbeResult, annotate, crop_match, probe
-from core.monitor_rules import group_to_event, normalize_monitor_group
+from core.monitor_rules import group_to_event, match_rule, normalize_monitor_group
 from core.screen import grab, load_image, to_ctk_image
 from core.script import list_scripts, new_script_path
 from .region_picker import RegionPicker
@@ -308,6 +310,8 @@ class MonitorPageMixin:
         self._btn(rrow, "框选区域", lambda: self._pick_region(False), width=80, height=28,
                   color=theme.ACCENT, text_color="#04121f").pack(side="left", padx=6)
         self._btn(rrow, "刷新预览", self._grab_preview, width=76, height=28).pack(side="left")
+        self._btn(rrow, "实时预览", self._toggle_scene_preview, width=76, height=28,
+                  color=theme.PURPLE, text_color="white").pack(side="left", padx=6)
         label(rrow, "轮询", 9).pack(side="left", padx=(10, 2))
         self.scene_poll_var = tk.StringVar(value=str(self.monitor_profile.poll_ms))
         pe = entry(rrow, width=52, textvariable=self.scene_poll_var)
@@ -317,6 +321,9 @@ class MonitorPageMixin:
 
         self.preview_panel = ImagePanel(region.body, size=(390, 190), text="框选区域后点击刷新预览")
         self.preview_panel.pack(fill="x", pady=(8, 0))
+        self.preview_stop = None
+        self.preview_thread = None
+        self.preview_latest = None
 
         icons = Card(page, "图标库", "点击查看，规则里选择模板")
         icons.grid(row=1, column=0, sticky="nsew", padx=(0, 6), pady=(6, 0))
@@ -863,6 +870,74 @@ class MonitorPageMixin:
             return
         self._show_page("record")
         self._toast("多图标监控节点已插入：%d 条规则" % len(g["rules"]), "ok")
+
+    def _toggle_scene_preview(self):
+        if self.preview_stop is not None and not self.preview_stop.is_set():
+            self.preview_stop.set()
+            self.preview_stop = None
+            self.preview_thread = None
+            self._toast("实时预览已停止", "info")
+            return
+        region = self.monitor_profile.region
+        if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
+            self._toast("请先框选监控场景区域", "warn")
+            return
+        self._sync_profile()
+        self.preview_stop = threading.Event()
+        self.preview_thread = threading.Thread(target=self._scene_preview_loop,
+                                               args=(self.preview_stop,), daemon=True)
+        self.preview_thread.start()
+        self._toast("实时预览已启动", "ok")
+        self.after(120, self._scene_preview_tick)
+
+    def _scene_preview_loop(self, stop):
+        source = None
+        region = [int(v) for v in self.monitor_profile.region]
+        try:
+            source = make_source(self.multi_group)
+            origin = (0, 0) if getattr(source, "mode", "screen") == "screen" else source.origin
+            while not stop.is_set():
+                try:
+                    frame = source.grab(region)
+                except Exception:
+                    stop.wait(0.5)
+                    continue
+                vis = frame.copy()
+                for rule in self._rules():
+                    if not rule.get("enabled", True) or not rule.get("template"):
+                        continue
+                    try:
+                        res = match_rule(self.matcher, frame, region, rule, origin)
+                        if res.score >= float(rule.get("threshold", 0.85)):
+                            x = int(res.x) - region[0]
+                            y = int(res.y) - region[1]
+                            cv2.rectangle(vis, (x, y), (x + res.w, y + res.h),
+                                          (0, 220, 255), 2)
+                            cv2.putText(vis, "%s %.2f" % (rule.get("name", "规则"), res.score),
+                                        (x, max(14, y - 6)), cv2.FONT_HERSHEY_SIMPLEX,
+                                        0.5, (0, 220, 255), 1, cv2.LINE_AA)
+                    except Exception:
+                        continue
+                self.preview_latest = vis
+                stop.wait(max(0.05, int(self.multi_group.get("poll_ms", 150)) / 1000.0))
+        except Exception as exc:
+            log("实时预览失败: %s" % exc, "WARN")
+        finally:
+            if source is not None:
+                try:
+                    source.close()
+                except Exception:
+                    pass
+
+    def _scene_preview_tick(self):
+        if self.preview_latest is not None:
+            try:
+                self.preview_panel.show_pil(to_ctk_image(self.preview_latest))
+            except Exception:
+                pass
+            self.preview_latest = None
+        if self.preview_thread is not None and self.preview_thread.is_alive():
+            self.after(120, self._scene_preview_tick)
 
     def _grab_preview(self):
         region = self.monitor_profile.region

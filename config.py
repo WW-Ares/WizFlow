@@ -11,7 +11,7 @@ from pathlib import Path
 
 APP_NAME = "WizFlow"
 APP_ID = "WizFlow.Desktop"
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.5.1"
 
 
 def app_dir() -> Path:
