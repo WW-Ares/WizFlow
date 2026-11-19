@@ -33,7 +33,7 @@ from core.winapi import is_admin, set_awake
 from .page_monitor import MonitorPageMixin
 from .page_record import RecordPageMixin
 from .page_settings import SettingsPageMixin
-from .widgets import Pill, label
+from .widgets import Pill, ScrollPage, label
 
 
 class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
@@ -44,7 +44,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self.title("%s  v%s" % (APP_NAME, APP_VERSION))
         self._set_window_icon()
         self.geometry("1280x860")
-        self.minsize(1000, 600)
+        self.minsize(1280, 760)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.cfg = Config()
@@ -141,38 +141,38 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self.header_pill.pack(side="left")
 
     def _build_sidebar(self):
-        side = ctk.CTkFrame(self, fg_color=theme.BG2, corner_radius=0, width=190)
+        side = ctk.CTkFrame(self, fg_color=theme.BG2, corner_radius=0, width=135)
         side.grid(row=1, column=0, sticky="nsw")
         side.grid_propagate(False)
 
         self.nav: dict[str, ctk.CTkButton] = {}
         items = [("record", "▣  录制 / 回放"), ("monitor", "◎  区域监控"), ("settings", "⚙  设置")]
         for i, (key, text) in enumerate(items):
-            b = ctk.CTkButton(side, text=text, anchor="w", height=42, width=158,
+            b = ctk.CTkButton(side, text=text, anchor="w", height=40, width=108,
                               fg_color="transparent", hover_color=theme.CARD2,
                               text_color=theme.MUTED, font=(theme.FONT, theme.fs(12)),
                               command=lambda k=key: self._show_page(k))
-            b.pack(padx=16, pady=(16 if i == 0 else 4, 0))
+            b.pack(padx=8, pady=(16 if i == 0 else 4, 0))
             self.nav[key] = b
 
-        ctk.CTkFrame(side, height=1, fg_color=theme.LINE).pack(fill="x", padx=22, pady=18)
+        ctk.CTkFrame(side, height=1, fg_color=theme.LINE).pack(fill="x", padx=16, pady=16)
 
         info = ctk.CTkFrame(side, fg_color=theme.CARD, corner_radius=10)
-        info.pack(fill="x", padx=14)
+        info.pack(fill="x", padx=8)
         ctk.CTkLabel(info, text="运行环境", font=(theme.FONT, theme.fs(10), "bold"),
-                     text_color=theme.MUTED).pack(anchor="w", padx=12, pady=(10, 2))
+                     text_color=theme.MUTED).pack(anchor="w", padx=10, pady=(10, 2))
         admin = is_admin()
         Pill(info, "管理员" if admin else "普通权限",
-             theme.OK if admin else theme.WARN).pack(anchor="w", padx=12, pady=(0, 6))
+             theme.OK if admin else theme.WARN).pack(anchor="w", padx=10, pady=(0, 6))
         ctk.CTkLabel(info, text="游戏以管理员运行时\n本工具也需管理员", font=(theme.FONT, theme.fs(9)),
-                     text_color=theme.MUTED, justify="left").pack(anchor="w", padx=12, pady=(0, 10))
+                     text_color=theme.MUTED, justify="left").pack(anchor="w", padx=10, pady=(0, 10))
 
         ctk.CTkLabel(side, text="v%s" % APP_VERSION, font=(theme.MONO, theme.fs(9)),
                      text_color=theme.LINE).pack(side="bottom", pady=12)
 
     def _build_content(self):
         self.content = ctk.CTkFrame(self, fg_color="transparent")
-        self.content.grid(row=1, column=1, sticky="nsew", padx=16, pady=12)
+        self.content.grid(row=1, column=1, sticky="nsew", padx=10, pady=10)
         self.content.grid_rowconfigure(0, weight=1)
         self.content.grid_columnconfigure(0, weight=1)
         self.pages: dict[str, ctk.CTkFrame] = {}
@@ -182,30 +182,10 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self._show_page("record")
 
     def _new_page(self):
-        """每个页面外层加纵向 + 横向滚动，窗口变小时不会裁掉内容。"""
-        holder = ctk.CTkFrame(self.content, fg_color="transparent")
-        holder.grid(row=0, column=0, sticky="nsew")
-        holder.grid_rowconfigure(0, weight=1)
-        holder.grid_columnconfigure(0, weight=1)
-        outer = ctk.CTkScrollableFrame(holder, fg_color="transparent", corner_radius=0)
-        outer.grid(row=0, column=0, sticky="nsew")
-        hbar = ctk.CTkScrollbar(holder, orientation="horizontal",
-                                command=outer._parent_canvas.xview)
-        hbar.grid(row=1, column=0, sticky="ew")
-        outer._parent_canvas.configure(xscrollcommand=hbar.set)
-        inner = ctk.CTkFrame(outer, fg_color="transparent")
-        inner.pack(anchor="nw")
-
-        def sync_width(_e=None):
-            try:
-                cw = outer._parent_canvas.winfo_width()
-                inner.configure(width=max(1000, cw))
-            except Exception:
-                pass
-
-        outer._parent_canvas.bind("<Configure>", sync_width, add="+")
-        outer.after(120, sync_width)
-        return holder, inner
+        """页面容器：内容超出时才显示横 / 竖滚动条。"""
+        page = ScrollPage(self.content)
+        page.grid(row=0, column=0, sticky="nsew")
+        return page, page.inner
 
     def _build_statusbar(self):
         bar = ctk.CTkFrame(self, fg_color=theme.BG2, corner_radius=0, height=28)

@@ -261,27 +261,37 @@ class EventEditorDialog(ctk.CTkToplevel):
             self.grab_release()
         except Exception:
             pass
+        root = getattr(self, "master_app", None)
         self.withdraw()
+        try:
+            if root is not None:
+                root.iconify()
+        except Exception:
+            pass
+
+        def restore():
+            try:
+                if root is not None:
+                    root.deiconify()
+                    root.lift()
+            except Exception:
+                pass
+            self.deiconify()
+            self.lift()
+            try:
+                self.grab_set()
+            except Exception:
+                pass
 
         def done(x, y):
             x_var.set(str(int(x)))
             y_var.set(str(int(y)))
-            self.deiconify()
-            self.lift()
-            try:
-                self.grab_set()
-            except Exception:
-                pass
+            self.after(120, restore)
 
         def cancel():
-            self.deiconify()
-            self.lift()
-            try:
-                self.grab_set()
-            except Exception:
-                pass
+            self.after(120, restore)
 
-        self.after(120, lambda: PointPicker(self, on_pick=done, on_cancel=cancel))
+        self.after(150, lambda: PointPicker(self, on_pick=done, on_cancel=cancel))
 
     def _build_click(self):
         at = str(self.event.get("action_type", "mouse left down")).lower().split()

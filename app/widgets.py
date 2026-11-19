@@ -172,3 +172,103 @@ def entry(master, width=90, **kwargs):
     kwargs.setdefault("font", (theme.MONO, theme.fs(12)))
     return ctk.CTkEntry(master, width=width, **kwargs)
 
+class ScrollPage(ctk.CTkFrame):
+    """页面滚动容器：只有内容超出时才显示横/竖滚动条。"""
+
+    MIN_WIDTH = 1000
+
+    def __init__(self, master):
+        super().__init__(master, fg_color="transparent")
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        self.canvas = tk.Canvas(self, highlightthickness=0, bg=theme.BG)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.vbar = ctk.CTkScrollbar(self, orientation="vertical",
+                                     command=self.canvas.yview)
+        self.vbar.grid(row=0, column=1, sticky="ns")
+        self.hbar = ctk.CTkScrollbar(self, orientation="horizontal",
+                                     command=self.canvas.xview)
+        self.hbar.grid(row=1, column=0, sticky="ew")
+        self.vbar.grid_remove()
+        self.hbar.grid_remove()
+        self.canvas.configure(yscrollcommand=self._yset,
+                              xscrollcommand=self._xset)
+        self.inner = ctk.CTkFrame(self.canvas, fg_color="transparent")
+        self.win = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
+        self._job = None
+        self._bars_job = None
+        self.canvas.bind("<Configure>", self._schedule)
+        self.inner.bind("<Configure>", self._schedule)
+        self.canvas.bind_all("<MouseWheel>", self._wheel, add="+")
+        self.after(80, self._sync)
+
+    def _schedule(self, _e=None):
+        if self._job is not None:
+            return
+        self._job = self.after(50, self._sync)
+
+    def _sync(self):
+        self._job = None
+        try:
+            cw = max(1, self.canvas.winfo_width())
+            width = max(self.MIN_WIDTH, cw)
+            try:
+                cur = int(self.inner.cget("width"))
+            except Exception:
+                cur = 0
+            if cur != width:
+                self.inner.configure(width=width)
+            self.update_idletasks()
+            height = max(1, self.inner.winfo_reqheight())
+            self.canvas.configure(scrollregion=(0, 0, width, height))
+            self._apply_bars()
+        except Exception:
+            pass
+
+    def _xset(self, first, last):
+        self.hbar.set(first, last)
+        self._schedule_bars()
+
+    def _yset(self, first, last):
+        self.vbar.set(first, last)
+        self._schedule_bars()
+
+    def _schedule_bars(self):
+        if self._bars_job is not None:
+            return
+        self._bars_job = self.after_idle(self._apply_bars)
+
+    def _apply_bars(self):
+        self._bars_job = None
+        try:
+            x0, x1 = self.canvas.xview()
+            y0, y1 = self.canvas.yview()
+            if x1 >= 0.99:
+                self.hbar.grid_remove()
+                self.canvas.xview_moveto(0)
+            else:
+                self.hbar.grid()
+            if y1 >= 0.99:
+                self.vbar.grid_remove()
+                self.canvas.yview_moveto(0)
+            else:
+                self.vbar.grid()
+        except Exception:
+            pass
+
+    def _wheel(self, e):
+        try:
+            if not self.winfo_ismapped():
+                return
+            x, y = self.winfo_pointerxy()
+            cx, cy = self.canvas.winfo_rootx(), self.canvas.winfo_rooty()
+            if not (cx <= x <= cx + self.canvas.winfo_width()
+                    and cy <= y <= cy + self.canvas.winfo_height()):
+                return
+            step = int(-e.delta / 120) or (-1 if e.delta > 0 else 1)
+            if e.state & 0x0001:
+                self.canvas.xview_scroll(step, "units")
+            else:
+                self.canvas.yview_scroll(step, "units")
+        except Exception:
+            pass

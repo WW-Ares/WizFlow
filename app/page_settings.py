@@ -20,9 +20,10 @@ class SettingsPageMixin:
         outer, page = self._new_page()
         self.pages["settings"] = outer
         page.grid_columnconfigure(0, weight=1)
+        page.grid_columnconfigure(1, weight=1)
 
         hk = Card(page, "全局热键", "点输入框后直接按键")
-        hk.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        hk.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 8))
         self.hk_vars = {}
         for key, text in (("start_pause", "启动 / 暂停"), ("stop", "停止"), ("record", "录制")):
             row = ctk.CTkFrame(hk.body, fg_color="transparent")
@@ -36,7 +37,7 @@ class SettingsPageMixin:
         label(hk.body, "热键被占用时会提示；修改后需点应用。", 9).pack(anchor="w", pady=(6, 0))
 
         ui = Card(page, "界面", "字体与控件缩放")
-        ui.grid(row=1, column=0, sticky="ew", pady=8)
+        ui.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=(0, 8))
         row = ctk.CTkFrame(ui.body, fg_color="transparent")
         row.pack(fill="x", pady=2)
         label(row, "界面缩放", 11, theme.TEXT).pack(side="left")
@@ -54,7 +55,7 @@ class SettingsPageMixin:
         label(row, "字体、按钮和输入框同步缩放；重启后生效。", 9).pack(side="left", padx=8)
 
         vp = Card(page, "虚拟屏保活", "Parsec VDD · 真正多一块虚拟显示器")
-        vp.grid(row=2, column=0, sticky="ew", pady=8)
+        vp.grid(row=1, column=0, columnspan=2, sticky="ew", pady=8)
         self.parsec_var = tk.BooleanVar(value=bool(self.cfg.get("vdisplay_parsec", False)))
         ctk.CTkSwitch(vp.body, text="启用虚拟显示器（关闭显示器后监控区域仍然有画面）",
                       variable=self.parsec_var, font=(theme.FONT, theme.fs(11)),
@@ -73,7 +74,7 @@ class SettingsPageMixin:
         label(vp.body, "原理：创建一块 Parsec 虚拟显示器并以 50ms 心跳保活，不依赖 UU / 不依赖第三方软件。", 9).pack(anchor="w")
 
         vd = Card(page, "会话保活", "内置兜底 · 无需驱动")
-        vd.grid(row=3, column=0, sticky="ew", pady=8)
+        vd.grid(row=2, column=0, columnspan=2, sticky="ew", pady=8)
         self.vd_var = tk.BooleanVar(value=bool(self.cfg.get("vdisplay", False)))
         ctk.CTkSwitch(vd.body, text="阻止睡眠 / 熄屏 / 屏保，空闲时微动鼠标",
                       variable=self.vd_var, font=(theme.FONT, theme.fs(11)), progress_color=theme.ACCENT,
@@ -87,7 +88,7 @@ class SettingsPageMixin:
         label(row, "纯 Windows API：SetThreadExecutionState + 空闲输入微动。", 9).pack(side="left", padx=8)
 
         about = Card(page, "路径与工具")
-        about.grid(row=4, column=0, sticky="ew", pady=8)
+        about.grid(row=3, column=0, columnspan=2, sticky="ew", pady=8)
         info = ctk.CTkTextbox(about.body, height=150, fg_color=theme.BG2, font=(theme.MONO, theme.fs(9)),
                               text_color=theme.MUTED)
         info.pack(fill="x")

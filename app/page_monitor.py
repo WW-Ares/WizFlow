@@ -333,16 +333,16 @@ class MonitorPageMixin:
         rules.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(6, 0))
         top = ctk.CTkFrame(rules.body, fg_color="transparent")
         top.pack(fill="x")
-        ctk.CTkButton(top, text="+ 新建规则", width=100, height=28, fg_color=theme.ACCENT,
+        ctk.CTkButton(top, text="+ 新建规则", width=92, height=28, fg_color=theme.ACCENT,
                       text_color="#04121f", font=(theme.FONT, theme.fs(10), "bold"),
                       command=self._new_rule).pack(side="left")
-        ctk.CTkButton(top, text="管理组", width=72, height=28, fg_color=theme.PURPLE,
+        ctk.CTkButton(top, text="管理组", width=64, height=28, fg_color=theme.PURPLE,
                       text_color="white", font=(theme.FONT, theme.fs(9)),
                       command=self._open_rules_window).pack(side="left", padx=6)
-        ctk.CTkButton(top, text="测试全部", width=76, height=28, fg_color=theme.CARD2,
+        ctk.CTkButton(top, text="测试全部", width=68, height=28, fg_color=theme.CARD2,
                       hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
                       command=self._test_all_rules).pack(side="left")
-        ctk.CTkButton(top, text="插入整组", width=76, height=28, fg_color=theme.CARD2,
+        ctk.CTkButton(top, text="插入整组", width=68, height=28, fg_color=theme.CARD2,
                       hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
                       command=self._insert_multi_group).pack(side="left", padx=6)
         self.rules_status = label(rules.body, "状态：未启用", 9, theme.MUTED)
@@ -852,33 +852,11 @@ class MonitorPageMixin:
         self._refresh_icons()
 
     def _add_icons(self):
-        paths = filedialog.askopenfilenames(
-            title="批量添加图标",
-            filetypes=[("图片", "*.png *.jpg *.jpeg *.bmp")])
-        if not paths:
+        if not self._ensure_region_shot():
             return
-        added = 0
-        failed = 0
-        for raw in paths:
-            src = Path(raw)
-            if not src.exists():
-                failed += 1
-                continue
-            dst = ICONS_DIR / src.name
-            i = 1
-            while dst.exists():
-                dst = ICONS_DIR / ("%s_%d%s" % (src.stem, i, src.suffix))
-                i += 1
-            try:
-                shutil.copy2(src, dst)
-                added += 1
-            except Exception:
-                failed += 1
-        self._refresh_icons()
-        msg = "已添加 %d 个图标" % added
-        if failed:
-            msg += "，%d 个失败" % failed
-        self._toast(msg, "ok" if added else "warn")
+        name = "icon_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        IconCropDialog(self, self.region_shot, self.monitor_profile.region, name,
+                       default_crop=None, on_save=self._on_icon_saved)
 
     def _delete_icon(self):
         if not self._selected_icon:

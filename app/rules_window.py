@@ -314,8 +314,60 @@ class ActionDialog(ctk.CTkToplevel):
                             int(float(self._v("point_y", 0) or 0))]
         return out
 
+    def _app_root(self):
+        w = self.master
+        while w is not None and not isinstance(w, ctk.CTk):
+            w = getattr(w, "master", None)
+        return w or self.master
+
+    def _pick_with_minimize(self, on_pick):
+        tops = []
+        w = self
+        root = None
+        while w is not None:
+            if isinstance(w, ctk.CTk):
+                root = w
+                break
+            if isinstance(w, tk.Toplevel):
+                tops.append(w)
+            w = getattr(w, "master", None)
+        for t in tops:
+            try:
+                t.withdraw()
+            except Exception:
+                pass
+        try:
+            if root is not None:
+                root.iconify()
+        except Exception:
+            pass
+
+        def restore():
+            try:
+                if root is not None:
+                    root.deiconify()
+                    root.lift()
+            except Exception:
+                pass
+            for t in reversed(tops):
+                try:
+                    t.deiconify()
+                    t.lift()
+                    t.focus_force()
+                except Exception:
+                    pass
+
+        def picked(x, y):
+            on_pick(x, y)
+            self.after(120, restore)
+
+        def cancelled():
+            self.after(120, restore)
+
+        self.after(150, lambda: PointPicker(self, on_pick=picked, on_cancel=cancelled))
+
     def _pick_point(self):
-        PointPicker(self, on_pick=self._on_point)
+        self._pick_with_minimize(self._on_point)
 
     def _on_point(self, x, y):
         if "point_x" in self.vars:
@@ -326,7 +378,7 @@ class ActionDialog(ctk.CTkToplevel):
             self.vars["position"].set("固定坐标")
 
     def _pick_drag_end(self):
-        PointPicker(self, on_pick=self._on_drag_point)
+        self._pick_with_minimize(self._on_drag_point)
 
     def _on_drag_point(self, x, y):
         if "to_mode" in self.vars:
