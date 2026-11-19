@@ -218,6 +218,10 @@ class ScrollPage(ctk.CTkFrame):
                 cur = 0
             if cur != width:
                 self.inner.configure(width=width)
+            try:
+                self.canvas.itemconfigure(self.win, width=width)
+            except Exception:
+                pass
             self.update_idletasks()
             height = max(1, self.inner.winfo_reqheight())
             self.canvas.configure(scrollregion=(0, 0, width, height))

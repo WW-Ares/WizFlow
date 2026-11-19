@@ -43,8 +43,8 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         super().__init__(fg_color=theme.BG)
         self.title("%s  v%s" % (APP_NAME, APP_VERSION))
         self._set_window_icon()
-        self.geometry("1280x860")
-        self.minsize(1280, 760)
+        self.geometry("1200x860")
+        self.minsize(1200, 760)
         self.resizable(False, True)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -161,36 +161,40 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             pass
 
     def _build_sidebar(self):
-        side = ctk.CTkFrame(self, fg_color=theme.BG2, corner_radius=0, width=135)
-        side.grid(row=1, column=0, sticky="nsw")
-        side.grid_propagate(False)
+        holder = ctk.CTkFrame(self, fg_color=theme.BG2, corner_radius=0, width=90)
+        holder.grid(row=1, column=0, sticky="nsw")
+        holder.grid_propagate(False)
+        holder.grid_rowconfigure(0, weight=1)
+        holder.grid_columnconfigure(0, weight=1)
+        side = ctk.CTkFrame(holder, fg_color=theme.BG2, corner_radius=0)
+        side.place(x=0, y=0, relwidth=1, relheight=1)
 
         self.nav: dict[str, ctk.CTkButton] = {}
-        items = [("record", "▣  录制 / 回放"), ("monitor", "◎  区域监控"), ("settings", "⚙  设置")]
+        items = [("record", "▣ 录制回放"), ("monitor", "◎ 区域监控"), ("settings", "⚙ 设置")]
         for i, (key, text) in enumerate(items):
-            b = ctk.CTkButton(side, text=text, anchor="w", height=40, width=108,
+            b = ctk.CTkButton(side, text=text, anchor="w", height=38, width=74,
                               fg_color="transparent", hover_color=theme.CARD2,
-                              text_color=theme.MUTED, font=(theme.FONT, theme.fs(12)),
+                              text_color=theme.MUTED, font=(theme.FONT, theme.fs(10)),
                               command=lambda k=key: self._show_page(k))
-            b.pack(padx=8, pady=(16 if i == 0 else 4, 0))
+            b.pack(padx=6, pady=(14 if i == 0 else 4, 0))
             self.nav[key] = b
 
-        ctk.CTkFrame(side, height=1, fg_color=theme.LINE).pack(fill="x", padx=16, pady=16)
+        ctk.CTkFrame(side, height=1, fg_color=theme.LINE).pack(fill="x", padx=10, pady=12)
 
         ctk.CTkLabel(side, text="v%s" % APP_VERSION, font=(theme.MONO, theme.fs(9)),
                      text_color=theme.MUTED).pack(side="bottom", pady=(0, 10))
 
         info = ctk.CTkFrame(side, fg_color=theme.CARD, corner_radius=10)
-        info.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
+        info.pack(side="bottom", fill="x", padx=5, pady=(0, 6))
         ctk.CTkLabel(info, text="运行环境", font=(theme.FONT, theme.fs(9), "bold"),
                      text_color=theme.MUTED).pack(anchor="center", pady=(8, 2))
         admin = is_admin()
         pill = Pill(info, "管理员" if admin else "普通权限",
                     theme.OK if admin else theme.WARN)
         pill.pack(anchor="center", pady=(0, 4))
-        ctk.CTkLabel(info, text="游戏以管理员运行时\n本工具也需要管理员",
-                     font=(theme.FONT, theme.fs(8)), text_color=theme.MUTED,
-                     justify="center").pack(anchor="center", padx=4, pady=(0, 8))
+        ctk.CTkLabel(info, text="游戏管理员运行\n需右键管理员",
+                     font=(theme.FONT, theme.fs(7)), text_color=theme.MUTED,
+                     justify="center").pack(anchor="center", padx=2, pady=(0, 6))
 
     def _build_content(self):
         self.content = ctk.CTkFrame(self, fg_color="transparent")

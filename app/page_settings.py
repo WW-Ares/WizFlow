@@ -61,7 +61,7 @@ class SettingsPageMixin:
         label(right, "字体、按钮和输入框同步缩放；重启后生效。", 9).pack(anchor="w", pady=(12, 4))
         label(right, "所有页面统一宽度，不再出现右侧空白。", 9).pack(anchor="w")
         label(right, "页面横竖滚动条按需显示。", 9).pack(anchor="w")
-        label(right, "主窗口固定 1280 宽，保证区域监控完整显示。", 9).pack(anchor="w")
+        label(right, "主窗口固定 1200 宽，保证区域监控完整显示。", 9).pack(anchor="w")
 
         keep = ctk.CTkFrame(page, fg_color="transparent")
         keep.grid(row=1, column=0, sticky="ew", pady=8)

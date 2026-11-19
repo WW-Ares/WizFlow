@@ -144,10 +144,6 @@ class MonitorPageMixin:
         self._refresh_region_label()
         self._refresh_rules_list()
         self._refresh_multi_label()
-        try:
-            self.after(80, self._rules_autohide)
-        except Exception:
-            pass
 
     def _ask_scheme_name(self, title, initial=""):
         return simpledialog.askstring(title, "方案名称：", initialvalue=initial, parent=self)
@@ -392,10 +388,8 @@ class MonitorPageMixin:
         self._btn(ih, "目录", self._open_icons_dir, width=58).pack(side="right", padx=6)
         self._btn(ih, "添加", self._add_icons, width=58, color=theme.OK,
                   text_color="#04121f").pack(side="right")
-        self.icons_scroll = ctk.CTkScrollableFrame(icons.body, fg_color=theme.BG2,
-                                                    corner_radius=8)
+        self.icons_scroll = ctk.CTkFrame(icons.body, fg_color=theme.BG2, corner_radius=8)
         self.icons_scroll.pack(fill="both", expand=True, pady=(8, 0))
-        self._icons_autohide = autohide_scrollbar(self.icons_scroll)
 
         rules = Card(page, "监控规则", "常驻 = 脚本外运行；也可插入脚本节点")
         rules.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(6, 0))
@@ -447,10 +441,8 @@ class MonitorPageMixin:
         ctk.CTkCheckBox(tools2, text="启用", variable=self.only_enabled_var, width=48,
                         font=(theme.FONT, theme.fs(9)), checkbox_width=16, checkbox_height=16,
                         command=self._refresh_rules_list).pack(side="left", padx=(4, 0))
-        self.rules_scroll = ctk.CTkScrollableFrame(rules.body, fg_color=theme.BG2,
-                                                    corner_radius=8)
+        self.rules_scroll = ctk.CTkFrame(rules.body, fg_color=theme.BG2, corner_radius=8)
         self.rules_scroll.pack(fill="both", expand=True)
-        self._rules_autohide = autohide_scrollbar(self.rules_scroll)
         self._rule_status_labels = {}
         self._refresh_rules_list()
         self.after(1000, self._rules_status_tick)
@@ -497,23 +489,18 @@ class MonitorPageMixin:
             row.bind("<Double-1>", lambda _e, r=rid: self._edit_rule(r))
 
             head = ctk.CTkFrame(row, fg_color="transparent")
-            head.pack(fill="x", padx=8, pady=(6, 0))
+            head.pack(fill="x", padx=(8, 24), pady=(6, 0))
+            head.grid_columnconfigure(1, weight=1)
             en_var = tk.BooleanVar(value=bool(rule.get("enabled", True)))
             ctk.CTkSwitch(head, text="", width=36, variable=en_var,
                           progress_color=theme.OK,
                           command=lambda r=rid, v=en_var: self._set_rule_flag(r, "enabled", bool(v.get()))
-                          ).pack(side="left", padx=(0, 4))
+                          ).grid(row=0, column=0, padx=(0, 4))
             label(head, "%s  ·  优先级 %s" % (rule.get("name", "规则"), rule.get("priority", 50)),
-                  10, theme.TEXT, anchor="w").pack(side="left")
-            ctk.CTkButton(head, text="删除", width=44, height=24, fg_color=theme.DANGER,
-                          text_color="white", font=(theme.FONT, theme.fs(9)),
-                          command=lambda r=rid: self._delete_rule(r)).pack(side="right", padx=2)
-            ctk.CTkButton(head, text="插入", width=44, height=24, fg_color=theme.CARD2,
+                  10, theme.TEXT, anchor="w").grid(row=0, column=1, sticky="w")
+            ctk.CTkButton(head, text="编辑", width=40, height=24, fg_color=theme.CARD2,
                           hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
-                          command=lambda r=rid: self._insert_rule(r)).pack(side="right", padx=2)
-            ctk.CTkButton(head, text="编辑", width=44, height=24, fg_color=theme.CARD2,
-                          hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
-                          command=lambda r=rid: self._edit_rule(r)).pack(side="right", padx=2)
+                          command=lambda r=rid: self._edit_rule(r)).grid(row=0, column=2, padx=1)
 
             acts = rule.get("actions") or []
             miss = rule.get("miss_actions") or []
@@ -521,17 +508,23 @@ class MonitorPageMixin:
             if miss:
                 line += "    消失：" + "、".join(action_summary(a) for a in miss[:1])
             body = ctk.CTkFrame(row, fg_color="transparent")
-            body.pack(fill="x", padx=8, pady=(2, 0))
-            label(body, line, 9, theme.MUTED, anchor="w", wraplength=300,
+            body.pack(fill="x", padx=(8, 24), pady=(2, 0))
+            label(body, line, 9, theme.MUTED, anchor="w", wraplength=220,
                   justify="left").pack(side="left", fill="x", expand=True)
 
             srow = ctk.CTkFrame(row, fg_color="transparent")
-            srow.pack(fill="x", padx=8, pady=(2, 6))
+            srow.pack(fill="x", padx=(8, 24), pady=(2, 6))
             st = label(srow, "状态：等待检测", 9, theme.MUTED, anchor="w")
             st.pack(side="left")
             self._rule_status_labels[rid] = st
+            ctk.CTkButton(srow, text="删除", width=40, height=22, fg_color=theme.DANGER,
+                          text_color="white", font=(theme.FONT, theme.fs(9)),
+                          command=lambda r=rid: self._delete_rule(r)).pack(side="right", padx=2)
+            ctk.CTkButton(srow, text="插入", width=40, height=22, fg_color=theme.CARD2,
+                          hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
+                          command=lambda r=rid: self._insert_rule(r)).pack(side="right", padx=2)
             resbox = ctk.CTkFrame(srow, fg_color="transparent")
-            resbox.pack(side="right")
+            resbox.pack(side="right", padx=(0, 4))
             label(resbox, "常驻", 9, theme.MUTED).pack(side="left", padx=(0, 2))
             res_var = tk.BooleanVar(value=bool(rule.get("resident", False)))
             ctk.CTkSwitch(resbox, text="", variable=res_var, width=40,
@@ -539,10 +532,6 @@ class MonitorPageMixin:
                           command=lambda r=rid, v=res_var: self._set_rule_flag(r, "resident", bool(v.get()))
                           ).pack(side="left")
         self._refresh_multi_label()
-        try:
-            self.after(80, self._rules_autohide)
-        except Exception:
-            pass
 
     def _refresh_multi_label(self):
         try:

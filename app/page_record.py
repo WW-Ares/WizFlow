@@ -62,8 +62,6 @@ class RecordPageMixin:
 
         rec = Card(cards, "录制", "全局键鼠钩子")
         rec.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        self.rec_pill = Pill(rec.body, "待机", theme.MUTED)
-        self.rec_pill.pack(anchor="w", pady=(0, 8))
         self.btn_record = ctk.CTkButton(rec.body, text="●  开始录制    F8", height=46,
                                         fg_color=theme.DANGER, hover_color="#dc2626",
                                         font=(theme.FONT, theme.fs(14), "bold"), command=self._toggle_record)
@@ -85,8 +83,6 @@ class RecordPageMixin:
         e.pack(side="left", padx=6)
         e.bind("<FocusOut>", lambda _e: self._on_traj_change())
         label(row, "ms（越小越密集）", 9).pack(side="left")
-        self.rec_stats = label(rec.body, "轨迹关闭时只记录点击点，脚本更短、回放更稳", 9)
-        self.rec_stats.pack(anchor="w", pady=(8, 0))
 
         play = Card(cards, "回放", "脚本执行 / 监控节点")
         play.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
@@ -121,7 +117,7 @@ class RecordPageMixin:
                                            fg_color=theme.BG2)
         self.progress.pack(fill="x")
         self.progress.set(0)
-        self.play_log = ctk.CTkTextbox(play.body, height=54, fg_color=theme.BG2,
+        self.play_log = ctk.CTkTextbox(play.body, height=40, fg_color=theme.BG2,
                                        text_color=theme.MUTED, font=(theme.MONO, theme.fs(9)),
                                        corner_radius=8)
         self.play_log.pack(fill="x", pady=(8, 0))
@@ -148,7 +144,7 @@ class RecordPageMixin:
         self._btn(self.edit_bar, "保存", self._save_edit, width=64, color=theme.OK,
                   text_color="#04121f").pack(side="left", padx=5)
         self._btn(self.edit_bar, "退出编辑", self._exit_edit, width=76).pack(side="left")
-        self.event_hint = label(ev_card.body, "点「编辑事件」后可修改节点", 9)
+        self.event_hint = label(ev_card.body, "", 9)
         self.event_hint.pack(anchor="w", pady=(0, 4))
 
         tables = ctk.CTkFrame(ev_card.body, fg_color=theme.BG2, corner_radius=8)
@@ -163,7 +159,7 @@ class RecordPageMixin:
                         borderwidth=0, relief="flat", font=(theme.FONT, theme.fs(10)),
                         bordercolor=theme.BG2, lightcolor=theme.BG2, darkcolor=theme.BG2)
         style.configure("WF.Treeview.Heading", background=theme.CARD2, foreground=theme.MUTED,
-                        relief="flat", font=(theme.FONT, theme.fs(10), "bold"), padding=(6, 4),
+                        relief="flat", font=(theme.FONT, theme.fs(9), "bold"), padding=(6, 3),
                         bordercolor=theme.CARD2, lightcolor=theme.CARD2, darkcolor=theme.CARD2)
         style.map("WF.Treeview", background=[("selected", "#1d4ed8")],
                   foreground=[("selected", "#ffffff")])
@@ -367,7 +363,7 @@ class RecordPageMixin:
         n = len(self._selected())
         try:
             if not getattr(self, "_editing", False):
-                self.event_hint.configure(text="点「编辑事件」后可修改节点")
+                self.event_hint.configure(text="")
             elif n:
                 self.event_hint.configure(text="编辑中 · 已选 %d 个 · 修改需点保存" % n)
             else:
