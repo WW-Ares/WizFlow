@@ -386,8 +386,12 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception:
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "crash.log"),
-                  "a", encoding="utf-8") as fh:
-            fh.write(traceback.format_exc() + "\n")
+        try:
+            from config import LOGS_DIR
+            LOGS_DIR.mkdir(parents=True, exist_ok=True)
+            path = LOGS_DIR / ("crash_%s.txt" % time.strftime("%Y%m%d_%H%M%S"))
+            path.write_text(traceback.format_exc(), encoding="utf-8")
+        except Exception:
+            pass
         raise
 

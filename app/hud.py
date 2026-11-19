@@ -11,7 +11,8 @@ import tkinter as tk
 import tkinter.font as tkfont
 
 from config import Config
-from core.winapi import primary_size, virtual_screen_rect
+from core.winapi import virtual_screen_rect
+from core.window_geometry import primary_work_area, rect_visible_enough
 from . import theme
 
 TRANSPARENT = "#010203"
@@ -216,15 +217,19 @@ class HudWindow(tk.Toplevel):
     def refresh_hotkeys(self):
         self._draw()
 
+    def _primary_top_right(self):
+        px, py, pw, _ph = primary_work_area()
+        return px + pw - CARD_W - 16, py + 16
+
     def _place(self):
         vx, vy, vw, vh = virtual_screen_rect()
         if bool(self.cfg.get("hud.saved", False)):
             x = int(self.cfg.get("hud.x", 0) or 0)
             y = int(self.cfg.get("hud.y", 0) or 0)
+            if not rect_visible_enough(x, y, CARD_W, CARD_H):
+                x, y = self._primary_top_right()
         else:
-            pw, _ph = primary_size()
-            x = pw - CARD_W - 16
-            y = 16
+            x, y = self._primary_top_right()
         x = max(vx, min(x, vx + vw - CARD_W))
         y = max(vy, min(y, vy + vh - CARD_H))
         geo = "%dx%d+%d+%d" % (CARD_W, CARD_H, x, y)
@@ -278,6 +283,8 @@ class HudWindow(tk.Toplevel):
         self._drag = None
         x, y = self.winfo_x(), self.winfo_y()
         vx, vy, vw, vh = virtual_screen_rect()
+        if not rect_visible_enough(x, y, CARD_W, CARD_H):
+            x, y = self._primary_top_right()
         if abs(x - vx) < 24:
             x = vx + 8
         if abs((x + CARD_W) - (vx + vw)) < 24:
