@@ -17,7 +17,8 @@ from PIL import Image
 
 from config import ICONS_DIR, ROOT
 from . import theme
-from core.capture import CaptureError, client_rect_screen, find_window, make_source
+from core.capture import (CaptureError, client_rect_screen, find_window, make_source,
+                          window_is_fullscreen)
 from core.monitor import LiveMonitor, MonitorProfile, ProbeResult, annotate, crop_match, probe
 from core.monitor_rules import group_to_event, normalize_monitor_group
 from core.screen import grab, load_image, to_ctk_image
@@ -27,7 +28,7 @@ from .icon_crop_dialog import IconCropDialog
 from .rules_window import RulesWindow
 from .point_picker import PointPicker
 from .key_record_dialog import KeyRecordDialog
-from .widgets import Card, ImagePanel, entry, label
+from .widgets import Card, ImagePanel, autohide_scrollbar, entry, label
 from .window_picker import WindowPicker
 
 
@@ -139,6 +140,10 @@ class MonitorPageMixin:
         self._refresh_region_label()
         self._refresh_rules_list()
         self._refresh_multi_label()
+        try:
+            self.after(80, self._rules_autohide)
+        except Exception:
+            pass
 
     def _ask_scheme_name(self, title, initial=""):
         return simpledialog.askstring(title, "方案名称：", initialvalue=initial, parent=self)
@@ -328,6 +333,7 @@ class MonitorPageMixin:
         self.icons_scroll = ctk.CTkScrollableFrame(icons.body, fg_color=theme.BG2,
                                                     corner_radius=8)
         self.icons_scroll.pack(fill="both", expand=True, pady=(8, 0))
+        self._icons_autohide = autohide_scrollbar(self.icons_scroll)
 
         rules = Card(page, "监控规则", "常驻 = 脚本外运行；也可插入脚本节点")
         rules.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(6, 0))
@@ -349,9 +355,18 @@ class MonitorPageMixin:
         self.rules_status.pack(anchor="w", pady=(6, 2))
         self.multi_label = label(rules.body, "", 9, theme.PURPLE)
         self.multi_label.pack(anchor="w", pady=(0, 4))
+        tools = ctk.CTkFrame(rules.body, fg_color="transparent")
+        tools.pack(fill="x", pady=(0, 4))
+        ctk.CTkButton(tools, text="导入规则", width=72, height=24, fg_color=theme.CARD2,
+                      hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
+                      command=self._import_rules).pack(side="left")
+        ctk.CTkButton(tools, text="导出规则", width=72, height=24, fg_color=theme.CARD2,
+                      hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
+                      command=self._export_rules).pack(side="left", padx=6)
         self.rules_scroll = ctk.CTkScrollableFrame(rules.body, fg_color=theme.BG2,
                                                     corner_radius=8)
         self.rules_scroll.pack(fill="both", expand=True)
+        self._rules_autohide = autohide_scrollbar(self.rules_scroll)
         self._rule_status_labels = {}
         self._refresh_rules_list()
         self.after(1000, self._rules_status_tick)
@@ -414,12 +429,19 @@ class MonitorPageMixin:
             st = label(srow, "状态：等待检测", 9, theme.MUTED, anchor="w")
             st.pack(side="left")
             self._rule_status_labels[rid] = st
+            resbox = ctk.CTkFrame(srow, fg_color="transparent")
+            resbox.pack(side="right")
+            label(resbox, "常驻", 9, theme.MUTED).pack(side="left", padx=(0, 2))
             res_var = tk.BooleanVar(value=bool(rule.get("resident", False)))
-            ctk.CTkSwitch(srow, text="常驻", variable=res_var, width=62,
-                          font=(theme.FONT, theme.fs(9)), progress_color=theme.ACCENT,
+            ctk.CTkSwitch(resbox, text="", variable=res_var, width=40,
+                          progress_color=theme.ACCENT,
                           command=lambda r=rid, v=res_var: self._set_rule_flag(r, "resident", bool(v.get()))
-                          ).pack(side="right")
+                          ).pack(side="left")
         self._refresh_multi_label()
+        try:
+            self.after(80, self._rules_autohide)
+        except Exception:
+            pass
 
     def _refresh_multi_label(self):
         try:
@@ -506,6 +528,98 @@ class MonitorPageMixin:
         g["rules"] = [dict(rule)]
         g["links"] = []
         self._insert_multi_group(g)
+
+    def _export_rules(self):
+        path = filedialog.asksaveasfilename(
+            title="导出监控规则", defaultextension=".json",
+            initialfile="wizflow_rules.json",
+            filetypes=[("JSON", "*.json")])
+        if not path:
+            return
+        data = {
+            "app": "WizFlow",
+            "version": 2,
+            "scene": {
+                "region": list(self.monitor_profile.region),
+                "capture_mode": self.monitor_profile.capture_mode,
+                "poll_ms": int(self.monitor_profile.poll_ms),
+            },
+            "rules": self.multi_group.get("rules") or [],
+            "links": self.multi_group.get("links") or [],
+            "on_none_present": self.multi_group.get("on_none_present") or [],
+        }
+        try:
+            Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                                  encoding="utf-8")
+            self._toast("已导出 %d 条规则" % len(data["rules"]), "ok")
+        except Exception as exc:
+            self._toast("导出失败：%s" % exc, "error")
+
+    def _import_rules(self):
+        path = filedialog.askopenfilename(title="导入监控规则",
+                                          filetypes=[("JSON", "*.json"), ("所有文件", "*.*")])
+        if not path:
+            return
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        except Exception as exc:
+            self._toast("读取失败：%s" % exc, "error")
+            return
+        rules = [r for r in (data.get("rules") or []) if isinstance(r, dict)]
+        if not rules:
+            self._toast("文件里没有规则", "warn")
+            return
+        replace = messagebox.askyesno(
+            "导入监控规则",
+            "检测到 %d 条规则。\n\n是 = 覆盖当前规则\n否 = 追加到当前规则" % len(rules))
+        g = normalize_monitor_group(self.multi_group)
+        if replace:
+            g["rules"] = []
+            g["links"] = []
+            g["on_none_present"] = []
+        id_map = {}
+        existing = {str(r.get("id")) for r in g.get("rules", [])}
+        for raw in rules:
+            r = dict(raw)
+            old = str(r.get("id", ""))
+            rid = "rule_" + uuid.uuid4().hex[:8]
+            while rid in existing:
+                rid = "rule_" + uuid.uuid4().hex[:8]
+            existing.add(rid)
+            r["id"] = rid
+            if old:
+                id_map[old] = rid
+            group_id = str(r.get("group", "") or "")
+            if group_id:
+                r["group"] = ""
+            g.setdefault("rules", []).append(r)
+        link_map = {}
+        for raw in (data.get("links") or []):
+            if not isinstance(raw, dict):
+                continue
+            l = dict(raw)
+            old = str(l.get("id", ""))
+            lid = "g_" + uuid.uuid4().hex[:8]
+            l["id"] = lid
+            l["members"] = [id_map[m] for m in (l.get("members") or []) if m in id_map]
+            if not l["members"]:
+                continue
+            if old:
+                link_map[old] = lid
+            g.setdefault("links", []).append(l)
+        # 重新绑定规则到新组
+        for raw in rules:
+            old_rule = str(raw.get("id", ""))
+            old_group = str(raw.get("group", "") or "")
+            if old_rule in id_map and old_group in link_map:
+                for r in g["rules"]:
+                    if r.get("id") == id_map[old_rule]:
+                        r["group"] = link_map[old_group]
+                        break
+        if replace and data.get("on_none_present"):
+            g["on_none_present"] = [a for a in data["on_none_present"] if isinstance(a, dict)]
+        self._save_multi_group(g)
+        self._toast("已导入 %d 条规则" % len(rules), "ok")
 
     def _test_all_rules(self):
         region = self.monitor_profile.region
@@ -605,6 +719,8 @@ class MonitorPageMixin:
         self._refresh_region_label()
         self._sync_profile()
         self._toast("已绑定窗口：%s" % w.title, "ok")
+        if window_is_fullscreen(int(w.hwnd)):
+            self._toast("检测到无边框全屏窗口，独占全屏可能抓到黑屏；建议改用窗口化 / 无边框窗口模式", "warn")
         self._grab_preview()
 
     def _refresh_window_label(self):
@@ -844,6 +960,10 @@ class MonitorPageMixin:
                 self.icon_selected_label.configure(text="当前模板：%s" % path.name)
         for c in range(3):
             self.icons_scroll.grid_columnconfigure(c, weight=1)
+        try:
+            self.after(80, self._icons_autohide)
+        except Exception:
+            pass
 
 
     def _select_icon(self, path: Path):

@@ -279,6 +279,73 @@ def _run_script(path: str, loops: int) -> int:
     return 0
 
 
+_MUTEX = None
+
+
+def _install_crash_handler() -> None:
+    def hook(exc_type, exc, tb):
+        text = "".join(traceback.format_exception(exc_type, exc, tb))
+        try:
+            from config import LOGS_DIR
+            LOGS_DIR.mkdir(parents=True, exist_ok=True)
+            path = LOGS_DIR / ("crash_%s.txt" % time.strftime("%Y%m%d_%H%M%S"))
+            path.write_text(text, encoding="utf-8")
+        except Exception:
+            pass
+        try:
+            import tkinter.messagebox as mb
+            mb.showerror("WizFlow",
+                         "程序遇到未处理的错误，详情已写入 logs/。\n\n%s" % str(exc)[:300])
+        except Exception:
+            pass
+
+    sys.excepthook = hook
+
+
+def _focus_existing_window() -> None:
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        u32 = ctypes.WinDLL("user32", use_last_error=True)
+        found = []
+        enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        def cb(hwnd, _lparam):
+            n = u32.GetWindowTextLengthW(hwnd)
+            if n:
+                buf = ctypes.create_unicode_buffer(n + 1)
+                u32.GetWindowTextW(hwnd, buf, n + 1)
+                if buf.value.startswith("WizFlow"):
+                    found.append(hwnd)
+            return True
+
+        u32.EnumWindows(enum_proc(cb), 0)
+        if found:
+            u32.ShowWindow(found[0], 9)
+            u32.SetForegroundWindow(found[0])
+    except Exception:
+        pass
+
+
+def _acquire_single_instance() -> bool:
+    global _MUTEX
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateMutexW.restype = wintypes.HANDLE
+        k32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+        _MUTEX = k32.CreateMutexW(None, False, "WizFlow.Desktop.SingleInstance")
+        if ctypes.get_last_error() == 183:
+            _focus_existing_window()
+            return False
+        return True
+    except Exception:
+        return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--selftest", action="store_true")
@@ -290,6 +357,10 @@ def main() -> int:
         return _selftest()
     if args.run:
         return _run_script(args.run, args.loops)
+
+    if not _acquire_single_instance():
+        return 0
+    _install_crash_handler()
 
     try:
         import ctypes

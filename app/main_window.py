@@ -56,6 +56,8 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             lambda: self.cfg.data,
             lambda rule_id, act: self.ui_queue.put(("rule_action", rule_id, act)))
         self._rule_paused = False
+        self._last_dpi = None
+        self._dpi_notice = False
 
         self.script_path = None
         self.events: list[dict] = []
@@ -92,6 +94,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self._load_last_script()
         self.after(80, self._pump)
         self.after(350, self._startup)
+        self.after(3000, self._watch_dpi)
 
         if os.environ.get("KMGPRO_UITEST") == "1":
             self.after(2400, self._ui_smoke)
@@ -135,10 +138,22 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         ctk.CTkSwitch(right, text="悬浮窗", variable=self.hud_var, width=54,
                       font=(theme.FONT, theme.fs(10)), progress_color=theme.ACCENT,
                       command=self._toggle_hud).pack(side="left", padx=(0, 14))
-        ctk.CTkLabel(right, text="F6 启动/暂停  ·  F7 停止  ·  F8 录制",
-                     font=(theme.MONO, theme.fs(10)), text_color=theme.MUTED).pack(side="left", padx=(0, 14))
+        self.hotkey_hint = ctk.CTkLabel(right, text="", font=(theme.MONO, theme.fs(10)),
+                                        text_color=theme.MUTED)
+        self.hotkey_hint.pack(side="left", padx=(0, 14))
+        self._refresh_header_hotkeys()
         self.header_pill = Pill(right, "待机", theme.OK)
         self.header_pill.pack(side="left")
+
+    def _refresh_header_hotkeys(self):
+        try:
+            self.hotkey_hint.configure(
+                text="%s 启动/暂停  ·  %s 停止  ·  %s 录制" % (
+                    self.cfg.get("hotkeys.start_pause", "F6"),
+                    self.cfg.get("hotkeys.stop", "F7"),
+                    self.cfg.get("hotkeys.record", "F8")))
+        except Exception:
+            pass
 
     def _build_sidebar(self):
         side = ctk.CTkFrame(self, fg_color=theme.BG2, corner_radius=0, width=135)
@@ -365,6 +380,51 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         }
         self.hotkeys = HotkeyManager(bindings, on_error=lambda m: self.ui_queue.put(("toast", m, "warn")))
         self.hotkeys.start()
+        if self.hotkeys.wait_ready(1.2) and self.hotkeys.failures:
+            fails = list(self.hotkeys.failures)
+            log("热键冲突: %s" % ", ".join(fails), "WARN")
+            self.after(400, lambda: self._prompt_hotkey_conflict(fails))
+
+    def _prompt_hotkey_conflict(self, fails):
+        try:
+            text = " / ".join(fails)
+            if messagebox.askyesno(
+                    "热键冲突",
+                    "以下热键无法注册：%s\n\n可能被其他程序占用。\n"
+                    "点「是」打开设置页修改热键，点「否」稍后手动处理。" % text):
+                self._show_page("settings")
+                self._toast("请在「全局热键」里改键后点「应用热键」重试", "info")
+        except Exception:
+            pass
+
+    def _watch_dpi(self):
+        try:
+            cur = round(float(self.winfo_fpixels("1i")) / 96.0, 2)
+            if self._last_dpi is None:
+                self._last_dpi = cur
+            elif abs(cur - self._last_dpi) >= 0.1 and not self._dpi_notice:
+                self._dpi_notice = True
+                log("检测到 DPI 变化 %.2f -> %.2f" % (self._last_dpi, cur), "WARN")
+                self.after(200, lambda: self._prompt_dpi_change(cur))
+        except Exception:
+            pass
+        self.after(3000, self._watch_dpi)
+
+    def _prompt_dpi_change(self, scale):
+        try:
+            rec = max(0.85, min(1.6, round(scale, 2)))
+            if messagebox.askyesno(
+                    "显示器缩放变化",
+                    "检测到显示器 DPI 变为约 %.0f%%。\n"
+                    "是否把界面缩放调整为 %.0f%% 并立即重启？" % (scale * 100, rec * 100)):
+                self.cfg.set("ui_scale", rec)
+                self.cfg.save()
+                self.after(200, self._restart_app)
+            else:
+                self._last_dpi = scale
+                self._dpi_notice = False
+        except Exception:
+            pass
 
     def _handle_rule_action(self, rule_id: str, act: dict):
         try:

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import datetime
 import copy
+import json
+import os
 import time
 import tkinter as tk
 from tkinter import ttk
@@ -11,12 +13,16 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
-from config import SCRIPTS_DIR
+from config import LOGS_DIR, SCRIPTS_DIR
 from . import theme
 from core.hotkeys import parse_hotkey
+from core.log import log
 from core.script import ScriptDoc, describe_event, list_scripts, new_script_path
 from .event_editor import EventEditorDialog
 from .widgets import Card, Pill, entry, label
+
+
+DRAFT_FILE = LOGS_DIR / "draft_autosave.json"
 
 
 class RecordPageMixin:
@@ -196,6 +202,8 @@ class RecordPageMixin:
         self.event_tree.bind("<Control-a>", self._select_all)
         self.event_tree.bind("<Control-A>", self._select_all)
         self.event_tree.bind("<<TreeviewSelect>>", lambda _e: self._update_hint())
+        self.after(15000, self._autosave_tick)
+        self.after(1400, self._maybe_restore_draft)
 
     # ------------------------------------------------------------ 脚本
     def _refresh_scripts(self, select: Path | None = None):
@@ -420,6 +428,7 @@ class RecordPageMixin:
         self._draft = None
         self._leave_edit_ui()
         self._rebuild_events()
+        self._clear_draft_file()
         if not silent:
             self._toast("已保存 %d 个事件" % len(self.events), "ok")
         return True
@@ -436,6 +445,63 @@ class RecordPageMixin:
         self._draft = None
         self._leave_edit_ui()
         self._rebuild_events()
+        self._clear_draft_file()
+
+    def _clear_draft_file(self):
+        try:
+            DRAFT_FILE.unlink()
+        except Exception:
+            pass
+
+    def _autosave_tick(self):
+        try:
+            if getattr(self, "_editing", False) and self._draft is not None:
+                payload = {
+                    "script": str(self.script_path or ""),
+                    "events": self._draft,
+                    "saved_at": time.time(),
+                }
+                tmp = DRAFT_FILE.with_suffix(".tmp")
+                tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=1),
+                               encoding="utf-8")
+                os.replace(tmp, DRAFT_FILE)
+        except Exception as exc:
+            log("草稿自动保存失败: %s" % exc, "WARN")
+        self.after(15000, self._autosave_tick)
+
+    def _maybe_restore_draft(self):
+        try:
+            if not DRAFT_FILE.exists():
+                return
+            payload = json.loads(DRAFT_FILE.read_text(encoding="utf-8"))
+            events = payload.get("events") or []
+            if not isinstance(events, list) or not events:
+                self._clear_draft_file()
+                return
+            stamp = datetime.datetime.fromtimestamp(float(payload.get("saved_at", 0)))
+            if not messagebox.askyesno(
+                    "恢复编辑草稿",
+                    "检测到 %s 的未保存编辑草稿（%d 个事件）。\n是否恢复并继续编辑？"
+                    % (stamp.strftime("%m-%d %H:%M"), len(events))):
+                self._clear_draft_file()
+                return
+            script = str(payload.get("script", "") or "")
+            if script and Path(script).exists():
+                try:
+                    doc = ScriptDoc.load(Path(script))
+                    self.script_path = Path(script)
+                    self.events = doc.events
+                    self._refresh_scripts(select=self.script_path)
+                except Exception:
+                    pass
+            self._draft = copy.deepcopy(events)
+            self._editing = True
+            self.btn_edit_mode.pack_forget()
+            self.edit_bar.pack(side="left", padx=(6, 0))
+            self._rebuild_events()
+            self._toast("已恢复编辑草稿（未保存）", "ok")
+        except Exception as exc:
+            log("恢复草稿失败: %s" % exc, "WARN")
 
     def _exit_edit(self):
         if not self._require_edit():

@@ -14,6 +14,9 @@ class ActionList(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent")
         self.actions = [dict(a) for a in (actions or []) if isinstance(a, dict)]
         self.inline = inline
+        self._drag_idx = None
+        self._motion_id = None
+        self._release_id = None
         self.box = ctk.CTkScrollableFrame(self, fg_color=theme.BG, corner_radius=8,
                                           height=height)
         self.box.pack(fill="x", expand=True)
@@ -32,6 +35,10 @@ class ActionList(ctk.CTkFrame):
         for i, a in enumerate(self.actions):
             row = ctk.CTkFrame(self.box, fg_color="transparent")
             row.pack(fill="x", pady=2)
+            handle = ctk.CTkLabel(row, text="≡", width=18, font=(theme.FONT, theme.fs(12)),
+                                  text_color=theme.MUTED, cursor="fleur")
+            handle.pack(side="left", padx=(0, 4))
+            handle.bind("<ButtonPress-1>", lambda _e, idx=i: self._drag_start(idx))
             label(row, action_summary(a), 9, theme.TEXT, anchor="w").pack(
                 side="left", fill="x", expand=True)
             ctk.CTkButton(row, text="编辑", width=46, height=24, fg_color=theme.CARD2,
@@ -40,6 +47,44 @@ class ActionList(ctk.CTkFrame):
             ctk.CTkButton(row, text="×", width=26, height=24, fg_color=theme.CARD2,
                           hover_color=theme.DANGER, font=(theme.FONT, theme.fs(10)),
                           command=lambda idx=i: self._delete(idx)).pack(side="left")
+
+    def _drag_start(self, idx):
+        self._drag_idx = idx
+        top = self.winfo_toplevel()
+        self._motion_id = top.bind("<B1-Motion>", self._drag_motion, add="+")
+        self._release_id = top.bind("<ButtonRelease-1>", self._drag_end, add="+")
+
+    def _drag_motion(self, e):
+        if self._drag_idx is None:
+            return
+        rows = [w for w in self.box.winfo_children() if isinstance(w, ctk.CTkFrame)]
+        if not rows:
+            return
+        target = len(rows) - 1
+        for i, row in enumerate(rows):
+            top = row.winfo_rooty()
+            if e.y_root < top + row.winfo_height() / 2:
+                target = i
+                break
+        idx = self._drag_idx
+        if target != idx and 0 <= idx < len(self.actions):
+            item = self.actions.pop(idx)
+            self.actions.insert(max(0, min(target, len(self.actions))), item)
+            self._drag_idx = target
+            self._refresh()
+
+    def _drag_end(self, _e=None):
+        top = self.winfo_toplevel()
+        try:
+            if self._motion_id:
+                top.unbind("<B1-Motion>", self._motion_id)
+            if self._release_id:
+                top.unbind("<ButtonRelease-1>", self._release_id)
+        except Exception:
+            pass
+        self._motion_id = None
+        self._release_id = None
+        self._drag_idx = None
 
     def _add(self):
         ActionDialog(self, {"type": "click"}, on_save=self._append)

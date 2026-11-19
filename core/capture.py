@@ -168,6 +168,32 @@ def list_windows(exclude_pid: int = 0) -> list[WindowInfo]:
     return out
 
 
+def window_is_fullscreen(hwnd: int) -> bool:
+    """判断窗口是否是无边框全屏（独占全屏的典型形态）。"""
+    if not hwnd:
+        return False
+    try:
+        rect = wt.RECT()
+        if not u32.GetWindowRect(wt.HWND(hwnd), ctypes.byref(rect)):
+            return False
+        style = u32.GetWindowLongW(wt.HWND(hwnd), -16) & 0xFFFFFFFF
+        if not (style & 0x80000000):
+            return False
+        if style & 0x00C00000:
+            return False
+        import mss
+        with mss.mss() as sct:
+            for mon in sct.monitors[1:]:
+                if (abs(rect.left - mon["left"]) <= 2
+                        and abs(rect.top - mon["top"]) <= 2
+                        and abs((rect.right - rect.left) - mon["width"]) <= 2
+                        and abs((rect.bottom - rect.top) - mon["height"]) <= 2):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 def find_window(hwnd: int = 0, title: str = "", class_name: str = "",
                 process: str = "") -> int:
     if hwnd and u32.IsWindow(hwnd):

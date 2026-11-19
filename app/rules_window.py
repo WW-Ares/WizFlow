@@ -413,6 +413,10 @@ class RuleDialog(ctk.CTkToplevel):
         self.template_rect = list(self.rule.get("template_rect") or [])
         self.actions = list(self.rule.get("actions") or [])
         self.miss_actions = list(self.rule.get("miss_actions") or [])
+        self._drag_kind = None
+        self._drag_idx = None
+        self._drag_motion_id = None
+        self._drag_release_id = None
         self.title("编辑监控规则")
         self.geometry("900x760")
         self.minsize(820, 650)
@@ -610,12 +614,61 @@ class RuleDialog(ctk.CTkToplevel):
         for i, a in enumerate(self.actions):
             row = ctk.CTkFrame(self.actions_scroll, fg_color="transparent")
             row.pack(fill="x", pady=2)
+            handle = ctk.CTkLabel(row, text="≡", width=18, font=(theme.FONT, theme.fs(12)),
+                                  text_color=theme.MUTED, cursor="fleur")
+            handle.pack(side="left", padx=(0, 2))
+            handle.bind("<ButtonPress-1>", lambda _e, idx=i: self._drag_start("hit", idx))
             label(row, "%02d" % (i + 1), 9, theme.LINE, width=30).pack(side="left")
             label(row, action_summary(a), 10, theme.TEXT, anchor="w").pack(side="left", fill="x", expand=True)
             ctk.CTkButton(row, text="编辑", width=50, height=24, fg_color=theme.CARD2,
                           command=lambda idx=i: self._edit_action(idx)).pack(side="left", padx=3)
             ctk.CTkButton(row, text="删除", width=50, height=24, fg_color=theme.DANGER,
                           command=lambda idx=i: self._delete_action(idx)).pack(side="left")
+
+    def _drag_start(self, kind, idx):
+        self._drag_kind = kind
+        self._drag_idx = idx
+        top = self.winfo_toplevel()
+        self._drag_motion_id = top.bind("<B1-Motion>", self._drag_motion, add="+")
+        self._drag_release_id = top.bind("<ButtonRelease-1>", self._drag_end, add="+")
+
+    def _drag_motion(self, e):
+        if self._drag_kind is None:
+            return
+        box = self.actions_scroll if self._drag_kind == "hit" else self.miss_scroll
+        rows = [w for w in box.winfo_children() if isinstance(w, ctk.CTkFrame)]
+        if not rows:
+            return
+        target = len(rows) - 1
+        for i, row in enumerate(rows):
+            top = row.winfo_rooty()
+            if e.y_root < top + row.winfo_height() / 2:
+                target = i
+                break
+        items = self.actions if self._drag_kind == "hit" else self.miss_actions
+        idx = self._drag_idx
+        if target != idx and 0 <= idx < len(items):
+            item = items.pop(idx)
+            items.insert(max(0, min(target, len(items))), item)
+            self._drag_idx = target
+            if self._drag_kind == "hit":
+                self._refresh_actions()
+            else:
+                self._refresh_miss_actions()
+
+    def _drag_end(self, _e=None):
+        top = self.winfo_toplevel()
+        try:
+            if self._drag_motion_id:
+                top.unbind("<B1-Motion>", self._drag_motion_id)
+            if self._drag_release_id:
+                top.unbind("<ButtonRelease-1>", self._drag_release_id)
+        except Exception:
+            pass
+        self._drag_kind = None
+        self._drag_idx = None
+        self._drag_motion_id = None
+        self._drag_release_id = None
 
     def _add_action(self):
         ActionDialog(self, {"type": "click"}, on_save=self._append_action)
@@ -648,6 +701,10 @@ class RuleDialog(ctk.CTkToplevel):
         for i, a in enumerate(self.miss_actions):
             row = ctk.CTkFrame(self.miss_scroll, fg_color="transparent")
             row.pack(fill="x", pady=2)
+            handle = ctk.CTkLabel(row, text="≡", width=18, font=(theme.FONT, theme.fs(12)),
+                                  text_color=theme.MUTED, cursor="fleur")
+            handle.pack(side="left", padx=(0, 2))
+            handle.bind("<ButtonPress-1>", lambda _e, idx=i: self._drag_start("miss", idx))
             label(row, "%02d" % (i + 1), 9, theme.LINE, width=30).pack(side="left")
             label(row, action_summary(a), 10, theme.TEXT, anchor="w").pack(
                 side="left", fill="x", expand=True)

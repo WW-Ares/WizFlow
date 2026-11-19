@@ -141,6 +141,10 @@ class SettingsPageMixin:
                 self.hud.refresh_hotkeys()
         except Exception:
             pass
+        try:
+            self._refresh_header_hotkeys()
+        except Exception:
+            pass
         self._toast("热键已应用：启动=%s / 停止=%s / 录制=%s"
                     % (vals["start_pause"], vals["stop"], vals["record"]), "ok")
 

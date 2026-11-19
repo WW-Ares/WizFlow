@@ -241,18 +241,21 @@ class ScrollPage(ctk.CTkFrame):
     def _apply_bars(self):
         self._bars_job = None
         try:
-            x0, x1 = self.canvas.xview()
-            y0, y1 = self.canvas.yview()
-            if x1 >= 0.99:
+            bbox = self.canvas.bbox("all") or (0, 0, 0, 0)
+            cw = max(1, self.canvas.winfo_width())
+            ch = max(1, self.canvas.winfo_height())
+            need_h = (bbox[2] - bbox[0]) > cw + 1
+            need_v = (bbox[3] - bbox[1]) > ch + 1
+            if need_h:
+                self.hbar.grid()
+            else:
                 self.hbar.grid_remove()
                 self.canvas.xview_moveto(0)
+            if need_v:
+                self.vbar.grid()
             else:
-                self.hbar.grid()
-            if y1 >= 0.99:
                 self.vbar.grid_remove()
                 self.canvas.yview_moveto(0)
-            else:
-                self.vbar.grid()
         except Exception:
             pass
 
@@ -272,3 +275,27 @@ class ScrollPage(ctk.CTkFrame):
                 self.canvas.yview_scroll(step, "units")
         except Exception:
             pass
+
+def autohide_scrollbar(scroll_frame):
+    """CTkScrollableFrame 的滚动条：内容超出才显示。"""
+    def update(*_a):
+        try:
+            sb = scroll_frame._scrollbar
+            canvas = scroll_frame._parent_canvas
+            bbox = canvas.bbox("all") or (0, 0, 0, 0)
+            need = (bbox[3] - bbox[1]) > canvas.winfo_height() + 2
+            if need:
+                sb.grid()
+            else:
+                sb.grid_remove()
+                canvas.yview_moveto(0)
+        except Exception:
+            pass
+    scroll_frame.bind("<Configure>", lambda _e: update(), add="+")
+    try:
+        scroll_frame._parent_canvas.bind("<Configure>", lambda _e: update(), add="+")
+    except Exception:
+        pass
+    scroll_frame.after(120, update)
+    scroll_frame.after(450, update)
+    return update

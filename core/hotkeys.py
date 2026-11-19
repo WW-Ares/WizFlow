@@ -69,6 +69,7 @@ class HotkeyManager(threading.Thread):
         self._ready = threading.Event()
         self._registered: list[int] = []
         self._binding_by_id: dict[int, Callable[[], None]] = {}
+        self.failures: list[str] = []
 
     def run(self) -> None:
         self._thread_id = int(kernel32.GetCurrentThreadId())
@@ -78,16 +79,21 @@ class HotkeyManager(threading.Thread):
         for name, cb in self.bindings.items():
             parsed = parse_hotkey(name)
             if not parsed:
+                self.failures.append(name)
                 self.on_error("无效热键: %s" % name)
                 continue
             mods, vk = parsed
             if not user32.RegisterHotKey(None, hid, mods, vk):
+                self.failures.append(name)
                 self.on_error("热键注册失败: %s（可能被其他程序占用）" % name)
             else:
                 self._registered.append(hid)
                 self._binding_by_id[hid] = cb
             hid += 1
         self._ready.set()
+
+    def wait_ready(self, timeout: float = 1.0) -> bool:
+        return bool(self._ready.wait(timeout))
         while not self._stop.is_set():
             ret = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
             if ret == 0 or ret == -1:
