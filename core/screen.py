@@ -13,7 +13,6 @@ import cv2
 import mss
 import numpy as np
 
-from config import ROOT
 from .winapi import virtual_screen_rect
 
 _tls = threading.local()
@@ -62,7 +61,7 @@ def load_image(path: str | Path) -> np.ndarray | None:
         return None
 
 
-def to_ctk_image(img: np.ndarray, size=(320, 180)):
+def to_ctk_image(img: np.ndarray):
     """BGR -> PIL Image（供 CustomTkinter 显示）。"""
     from PIL import Image
 

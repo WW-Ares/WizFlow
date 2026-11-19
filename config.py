@@ -116,7 +116,6 @@ DEFAULTS = {
         "run_script": "",
         "script_anchor": [],
     },
-    "window": {"w": 1180, "h": 790},
 }
 
 
@@ -141,7 +140,6 @@ def _migrate_background(data: dict) -> None:
 
     on_hit = act(str(sup.get("appear", "none")))
     on_miss = act(str(sup.get("disappear", "none")))
-    run_script = str(sup.get("run_script", "") or "")
     rule = {
         "id": "rule_legacy",
         "name": "后台监控（迁移）",
@@ -348,12 +346,21 @@ class Config:
             self.data = copy.deepcopy(DEFAULTS)
         return self.data
 
-    def save(self) -> None:
+    def save(self) -> bool:
         with self._lock:
-            tmp = self.path.with_suffix(".json.tmp")
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(self.data, fh, ensure_ascii=False, indent=2)
-            os.replace(tmp, self.path)
+            try:
+                tmp = self.path.with_suffix(".json.tmp")
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    json.dump(self.data, fh, ensure_ascii=False, indent=2)
+                os.replace(tmp, self.path)
+                return True
+            except Exception as exc:
+                try:
+                    from core.log import log
+                    log("配置保存失败: %s" % exc, "ERROR")
+                except Exception:
+                    pass
+                return False
 
     def get(self, dotted: str, default=None):
         cur = self.data

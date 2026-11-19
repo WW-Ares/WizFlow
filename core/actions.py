@@ -14,7 +14,7 @@ from .hotkeys import parse_hotkey
 from .log import log
 from .screen import MatchResult
 from .script import ScriptDoc
-from .winapi import (cursor_pos, key_down, key_up, mouse_down, mouse_up,
+from .winapi import (key_down, key_up, mouse_down, mouse_up,
                      mouse_wheel, set_cursor_pos)
 
 

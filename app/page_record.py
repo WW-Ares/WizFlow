@@ -19,7 +19,7 @@ from core.hotkeys import parse_hotkey
 from core.log import log
 from core.script import ScriptDoc, describe_event, list_scripts, new_script_path
 from .event_editor import EventEditorDialog
-from .widgets import Card, Pill, entry, label
+from .widgets import Card, entry, label
 
 
 DRAFT_FILE = LOGS_DIR / "draft_autosave.json"
@@ -112,7 +112,6 @@ class RecordPageMixin:
         self._btn(btns, "停止", self._stop_play, width=64, color=theme.DANGER,
                   text_color="white").pack(side="left")
 
-        self.play_pill = Pill(play.body, "空闲", theme.MUTED)
         self.play_log = ctk.CTkTextbox(play.body, height=120, fg_color=theme.BG2,
                                        text_color=theme.MUTED, font=(theme.MONO, theme.fs(10)),
                                        corner_radius=8)
@@ -729,7 +728,6 @@ class RecordPageMixin:
         self.player.current_script = self.script_path
         if self.player.start(self.events, loops, speed, script_dir=script_dir):
             self._refresh_hotkey_button_text()
-            self.play_pill.set("运行中", theme.OK)
             self._set_header("回放中", theme.ACCENT)
             self._append_play_log("启动：%d 个事件，循环 %s，速度 %.2fx"
                                   % (len(self.events), loops or "∞", speed))
@@ -738,25 +736,19 @@ class RecordPageMixin:
     def _pause_play(self, rule: bool = False):
         if not self.player.running:
             return
-        self._rule_paused = False
         if self.player.paused:
             self.player.resume(None)
-            self.play_pill.set("运行中", theme.OK)
             self._set_header("回放中", theme.ACCENT)
             self._append_play_log("继续运行")
         else:
             self.player.pause("manual")
-            self.play_pill.set("已暂停", theme.WARN)
             self._set_header("已暂停", theme.WARN)
             self._append_play_log("已暂停")
 
     def _resume_play(self):
         if not self.player.running:
-            self._rule_paused = False
             return
         self.player.resume(None)
-        self._rule_paused = False
-        self.play_pill.set("运行中", theme.OK)
         self._set_header("回放中", theme.ACCENT)
         self._append_play_log("继续运行")
 
@@ -764,7 +756,6 @@ class RecordPageMixin:
         if not self.player.running or self.player.paused:
             return False
         self.player.pause(reason)
-        self.play_pill.set("已暂停", theme.WARN)
         self._set_header("已暂停", theme.WARN)
         self._append_play_log("已暂停（规则）")
         return True
@@ -774,7 +765,6 @@ class RecordPageMixin:
             return False
         self.player.resume(reason)
         if not self.player.paused:
-            self.play_pill.set("运行中", theme.OK)
             self._set_header("回放中", theme.ACCENT)
             self._append_play_log("继续运行（规则）")
         return True
@@ -809,7 +799,6 @@ class RecordPageMixin:
             self._toast("%s：脚本启动失败" % source, "error")
             return False
         self._refresh_hotkey_button_text()
-        self.play_pill.set("运行中", theme.OK)
         self._set_header("回放中", theme.ACCENT)
         self._append_play_log("%s启动：%s" % (source, path.name))
         return True
@@ -841,7 +830,6 @@ class RecordPageMixin:
 
     def _apply_player_status(self, text: str, progress):
         if text:
-            self.play_pill.set(text[:16], theme.OK if "运行" in text else theme.MUTED)
             if "第" in text:
                 self._set_header(text.replace("运行中", "回放中")[:14], theme.ACCENT)
             elif "完成" in text:
@@ -850,18 +838,14 @@ class RecordPageMixin:
                 self._set_header("已停止", theme.WARN)
 
     def _apply_player_done(self, reason: str):
-        self._rule_paused = False
         self.player.current_script = self.script_path
         self._refresh_hotkey_button_text()
         self._set_header("空闲", theme.OK)
         if reason == "finished":
-            self.play_pill.set("已完成", theme.OK)
             self._append_play_log("回放完成")
         elif reason == "stopped":
-            self.play_pill.set("已停止", theme.WARN)
             self._append_play_log("已停止")
         else:
-            self.play_pill.set("异常", theme.DANGER)
             self._append_play_log("回放异常，详见日志")
 
     def _refresh_hotkey_button_text(self):

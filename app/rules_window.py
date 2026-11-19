@@ -10,7 +10,7 @@ from PIL import Image
 
 from config import ICONS_DIR
 from core.actions import action_summary
-from core.monitor_rules import (DEFAULTS_RULE, group_to_event, match_rule, normalize_link,
+from core.monitor_rules import (match_rule, normalize_link,
                                 normalize_monitor_group, normalize_rule)
 from core.script import list_scripts
 from core.screen import TemplateMatcher, grab, load_image, to_ctk_image
@@ -19,7 +19,7 @@ from .icon_crop_dialog import IconCropDialog
 from .point_picker import PointPicker
 from .area_select_dialog import AreaSelectDialog
 from .window_icon import apply_window_icon
-from .widgets import Card, ImagePanel, entry, label
+from .widgets import Card, entry, label
 
 ACTION_TYPES = [
     ("click", "单击 / 双击 / 长按"),

@@ -10,7 +10,7 @@ import customtkinter as ctk
 
 from config import ICONS_DIR, SCRIPTS_DIR
 from core.hotkeys import parse_hotkey
-from core.script import list_scripts, vk_label
+from core.script import list_scripts
 from core.winapi import EXTENDED_VKS
 from . import theme
 from .key_record_dialog import KeyRecordDialog
@@ -796,7 +796,6 @@ class EventEditorDialog(ctk.CTkToplevel):
                 return None
             thr = max(0.05, min(0.999, float(self._num("threshold"))))
             poll = max(20, int(self._num("poll")))
-            timeout = max(0, int(self._num("timeout")))
             mode = {"单次判断": "once", "限时等待": "timeout",
                     "一直等待": "forever"}.get(self.wait_mode_var.get(), "timeout")
             try:

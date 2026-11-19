@@ -2,16 +2,13 @@
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 import threading
 import tkinter as tk
 
 import customtkinter as ctk
 
-from config import CONFIG_FILE, ICONS_DIR, LOGS_DIR, ROOT, SCRIPTS_DIR
+from config import CONFIG_FILE, ICONS_DIR, LOGS_DIR, ROOT
 from . import theme
-from core.winapi import set_awake
 from .widgets import Card, KeyCaptureEntry, label
 
 

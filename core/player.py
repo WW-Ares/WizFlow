@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import copy
-import datetime
 import random
 import threading
 import time
@@ -22,7 +21,7 @@ from .hotkeys import parse_hotkey
 from .log import log
 from .monitor_rules import MonitorEngine
 from .script import ScriptDoc, normalize_action
-from .screen import MatchResult, TemplateMatcher, grab
+from .screen import MatchResult, TemplateMatcher, grab  # noqa: F401  (tests monkeypatch grab)
 from .winapi import (key_down, key_up, mouse_down, mouse_up, mouse_wheel,
                      set_cursor_pos)
 

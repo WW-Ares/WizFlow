@@ -69,7 +69,6 @@ class ScriptSupervisor(threading.Thread):
                 if not template:
                     raise ValueError("未选择监控图案")
                 source = self._ensure_source(cfg)
-                origin = source.origin
                 frame = source.grab(region)
                 threshold = float(cfg.get("threshold", 0.85))
                 res = self.matcher.find(frame, template, threshold,

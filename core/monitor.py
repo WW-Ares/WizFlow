@@ -8,9 +8,9 @@ from typing import Callable
 
 import cv2
 
-from .capture import CaptureError, make_source
+from .capture import make_source
 from .log import log
-from .screen import MatchResult, TemplateMatcher, grab
+from .screen import TemplateMatcher
 
 
 @dataclass

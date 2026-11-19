@@ -99,6 +99,10 @@ class BackgroundRuleEngine(threading.Thread):
             cfg = self.config_provider() or {}
             group = normalize_monitor_group(cfg.get("multi_monitor") or {})
             region = [int(v) for v in (group.get("region") or [0, 0, 0, 0])]
+            all_ids = {str(r.get("id")) for r in group.get("rules", [])}
+            for rid in list(self._states):
+                if rid not in all_ids:
+                    self._states.pop(rid, None)
             rules = [r for r in group.get("rules", [])
                      if bool(r.get("enabled", True)) and bool(r.get("resident", False))]
             self.enabled = bool(rules)

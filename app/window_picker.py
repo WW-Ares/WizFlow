@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import tkinter as tk
 from tkinter import ttk
 
 import customtkinter as ctk

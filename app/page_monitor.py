@@ -20,7 +20,7 @@ from PIL import Image
 
 from config import ICONS_DIR, ROOT
 from . import theme
-from core.capture import (CaptureError, client_rect_screen, find_window, make_source,
+from core.capture import (client_rect_screen, find_window, make_source,
                           window_is_fullscreen)
 from core.log import log
 from core.monitor import LiveMonitor, MonitorProfile, ProbeResult, annotate, crop_match, probe
@@ -266,7 +266,25 @@ class MonitorPageMixin:
                 tmpdir = tempfile.TemporaryDirectory(prefix="wizflow_import_")
                 root = Path(tmpdir.name)
                 with zipfile.ZipFile(path) as z:
-                    z.extractall(root)
+                    root_res = root.resolve()
+                    for info in z.infolist():
+                        name = info.filename.replace("\\", "/")
+                        parts = [p for p in name.split("/") if p not in ("", ".")]
+                        if not parts or ".." in parts:
+                            continue
+                        if info.file_size > 50 * 1024 * 1024:
+                            continue
+                        target = root.joinpath(*parts)
+                        try:
+                            target.resolve().relative_to(root_res)
+                        except Exception:
+                            continue
+                        if name.endswith("/"):
+                            target.mkdir(parents=True, exist_ok=True)
+                            continue
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with z.open(info) as src, open(target, "wb") as dst:
+                            shutil.copyfileobj(src, dst)
                 scheme_file = root / "scheme.json"
                 if not scheme_file.exists():
                     matches = list(root.rglob("scheme.json"))
@@ -278,7 +296,7 @@ class MonitorPageMixin:
                 if icon_dir.exists():
                     ICONS_DIR.mkdir(parents=True, exist_ok=True)
                     for f in icon_dir.iterdir():
-                        if f.is_file():
+                        if f.is_file() and f.suffix.lower() in (".png", ".jpg", ".jpeg", ".bmp"):
                             shutil.copy2(f, ICONS_DIR / f.name)
             else:
                 data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -426,7 +444,7 @@ class MonitorPageMixin:
                           placeholder_text="搜索规则", fg_color=theme.CARD,
                           border_color=theme.LINE, font=(theme.FONT, theme.fs(9)))
         fe.pack(side="left")
-        self.rule_filter_var.trace_add("write", lambda *_a: self._refresh_rules_list())
+        self.rule_filter_var.trace_add("write", lambda *_a: self._schedule_rules_refresh())
         ctk.CTkButton(tools2, text="全常驻", width=58, height=24, fg_color=theme.CARD2,
                       hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
                       command=lambda: self._set_all_resident(True)).pack(side="left", padx=6)
@@ -448,6 +466,14 @@ class MonitorPageMixin:
         self.after(1000, self._rules_status_tick)
 
     # ------------------------------------------------------------ 规则列表
+    def _schedule_rules_refresh(self):
+        try:
+            if getattr(self, "_rules_job", None):
+                self.after_cancel(self._rules_job)
+        except Exception:
+            pass
+        self._rules_job = self.after(180, self._refresh_rules_list)
+
     def _rules(self) -> list[dict]:
         return list(self.multi_group.get("rules") or [])
 
@@ -635,7 +661,6 @@ class MonitorPageMixin:
         self._save_multi_group(g, silent=True)
         if blocked:
             self._toast("规则已停用，启用后才能常驻", "warn")
-        self.after(10, self._refresh_rules_list)
 
     def _insert_rule(self, rid: str):
         rule = next((r for r in self._rules() if str(r.get("id")) == rid), None)
@@ -1141,11 +1166,20 @@ class MonitorPageMixin:
                          justify="left").grid(row=0, column=0, columnspan=3,
                                               sticky="w", padx=8, pady=8)
             return
+        cache = getattr(self, "_icon_cache", None)
+        if cache is None:
+            cache = self._icon_cache = {}
+        new_cache = {}
         for i, path in enumerate(files):
             try:
-                img = Image.open(path).convert("RGB")
-                img.thumbnail((64, 64), Image.LANCZOS)
-                cimg = ctk.CTkImage(light_image=img, dark_image=img, size=img.size)
+                st = path.stat()
+                key = (str(path), round(float(st.st_mtime), 3), int(st.st_size))
+                cimg = cache.get(key)
+                if cimg is None:
+                    img = Image.open(path).convert("RGB")
+                    img.thumbnail((64, 64), Image.LANCZOS)
+                    cimg = ctk.CTkImage(light_image=img, dark_image=img, size=img.size)
+                new_cache[key] = cimg
                 self._icon_imgs.append(cimg)
             except Exception:
                 cimg = None
@@ -1160,12 +1194,9 @@ class MonitorPageMixin:
             b.grid(row=i // 3, column=i % 3, padx=5, pady=5, sticky="nsew")
             if selected:
                 self.icon_selected_label.configure(text="当前模板：%s" % path.name)
+        self._icon_cache = new_cache
         for c in range(3):
             self.icons_scroll.inner.grid_columnconfigure(c, weight=1)
-        try:
-            self.after(80, self._icons_autohide)
-        except Exception:
-            pass
 
 
     def _select_icon(self, path: Path):

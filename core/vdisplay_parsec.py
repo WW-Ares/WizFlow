@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes as w
-import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -265,28 +265,31 @@ def _run_driver_commands(commands: list[list[str]], tag: str) -> tuple[int, str]
 
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="wizflow_vdd_"))
-    cmd = work / ("%s.cmd" % tag)
-    logf = work / ("%s.log" % tag)
-    lines = ["@echo off", "setlocal"]
-    for args in commands:
-        quoted = " ".join('"%s"' % a if (" " in a or "\\" in a) else a for a in args)
-        lines.append(quoted)
-    # 只取最后一步（install-driver / uninstall-driver）的返回码
-    lines += ["if errorlevel 1 (echo FAIL>\"%s\" & exit /b 1)" % logf,
-              "echo OK>\"%s\"" % logf, "exit /b 0"]
-    cmd.write_text("\r\n".join(lines) + "\r\n", encoding="mbcs", errors="replace")
-    code, err = _run_elevated(str(cmd))
-    text = ""
-    if logf.exists():
-        try:
-            text = logf.read_text(encoding="mbcs", errors="replace").strip()
-        except Exception:
-            text = ""
-    if code == 0 and text == "OK":
-        return 0, "OK"
-    if code == -2:
-        return code, err
-    return code if code != 0 else -1, err or ("驱动安装失败（见 %s）" % work)
+    try:
+        cmd = work / ("%s.cmd" % tag)
+        logf = work / ("%s.log" % tag)
+        lines = ["@echo off", "setlocal"]
+        for args in commands:
+            quoted = " ".join('"%s"' % a if (" " in a or "\\" in a) else a for a in args)
+            lines.append(quoted)
+        # 只取最后一步（install-driver / uninstall-driver）的返回码
+        lines += ["if errorlevel 1 (echo FAIL>\"%s\" & exit /b 1)" % logf,
+                  "echo OK>\"%s\"" % logf, "exit /b 0"]
+        cmd.write_text("\r\n".join(lines) + "\r\n", encoding="mbcs", errors="replace")
+        code, err = _run_elevated(str(cmd))
+        text = ""
+        if logf.exists():
+            try:
+                text = logf.read_text(encoding="mbcs", errors="replace").strip()
+            except Exception:
+                text = ""
+        if code == 0 and text == "OK":
+            return 0, "OK"
+        if code == -2:
+            return code, err
+        return code if code != 0 else -1, err or "驱动安装失败（临时文件已清理）"
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def install_driver() -> str:

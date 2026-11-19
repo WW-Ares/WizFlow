@@ -1,12 +1,9 @@
 """主窗口：装配页面、热键、队列与生命周期。"""
 from __future__ import annotations
 
-import datetime
 import os
 import queue
-import subprocess
 import threading
-import time
 import traceback
 import tkinter as tk
 from pathlib import Path
@@ -15,15 +12,15 @@ from tkinter import messagebox
 import customtkinter as ctk
 from PIL import Image
 
-from config import (APP_NAME, APP_VERSION, CONFIG_FILE, ICONS_DIR, LOGS_DIR,
+from config import (APP_NAME, APP_VERSION, ICONS_DIR, LOGS_DIR,
                     ROOT, SCRIPTS_DIR, Config, asset_path)
 from . import theme
 from .hud import HudWindow
 from .tray import TrayIcon
-from core.actions import action_summary, execute_input
-from core.hotkeys import HotkeyManager, parse_hotkey
+from core.actions import execute_input
+from core.hotkeys import HotkeyManager
 from core.log import log
-from core.monitor import MonitorProfile, ProbeResult
+from core.monitor import MonitorProfile
 from core.player import Player
 from core.recorder import Recorder
 from core.screen import TemplateMatcher
@@ -33,7 +30,7 @@ from core.winapi import is_admin, set_awake
 from .page_monitor import MonitorPageMixin
 from .page_record import RecordPageMixin
 from .page_settings import SettingsPageMixin
-from .widgets import Pill, ScrollPage, label
+from .widgets import Pill, ScrollPage
 
 
 class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
@@ -65,6 +62,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.cfg = Config()
+        self._restore_window_rect()
         self.matcher = TemplateMatcher()
         self.recorder = Recorder(self._record_callback)
         self.player = Player(self.matcher, self._player_status, self._player_finished)
@@ -72,9 +70,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self.rules_engine = BackgroundRuleEngine(
             lambda: self.cfg.data,
             lambda rule_id, act: self.ui_queue.put(("rule_action", rule_id, act)))
-        self._rule_paused = False
         self._last_dpi = None
-        self._dpi_notice = False
 
         self.script_path = None
         self.events: list[dict] = []
@@ -105,7 +101,6 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self.hud: HudWindow | None = None
         self.tray: TrayIcon | None = None
         self._quitting = False
-        self._tray_hint = False
         self.recording = False
         self._build_hud()
         self._build_tray()
@@ -367,6 +362,63 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         elif action == "quit":
             self._quit_app()
 
+    def _primary_work_area(self):
+        import ctypes
+
+        class RECT(ctypes.Structure):
+            _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                        ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+        r = RECT()
+        try:
+            ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(r), 0)
+            return int(r.left), int(r.top), int(r.right - r.left), int(r.bottom - r.top)
+        except Exception:
+            return 0, 0, 1920, 1080
+
+    def _monitor_rects(self):
+        try:
+            import mss
+            with mss.mss() as sct:
+                return [(int(m["left"]), int(m["top"]), int(m["width"]), int(m["height"]))
+                        for m in sct.monitors[1:]]
+        except Exception:
+            return []
+
+    def _rect_visible_enough(self, x, y, w=1200, h=860):
+        rects = self._monitor_rects()
+        if not rects:
+            return True
+        for mx, my, mw, mh in rects:
+            ix = max(0, min(x + w, mx + mw) - max(x, mx))
+            iy = max(0, min(y + h, my + mh) - max(y, my))
+            if ix * iy >= 0.4 * w * h:
+                return True
+        return False
+
+    def _restore_window_rect(self):
+        w, h = 1200, 860
+        rect = self.cfg.get("window_rect", None) or {}
+        x = y = None
+        try:
+            x, y = int(rect.get("x")), int(rect.get("y"))
+        except Exception:
+            x = y = None
+        if x is None or not self._rect_visible_enough(x, y, w, h):
+            px, py, pw, ph = self._primary_work_area()
+            x = px + max(0, (pw - w) // 2)
+            y = py + max(0, (ph - h) // 2)
+        self.geometry("%dx%d+%d+%d" % (w, h, x, y))
+
+    def _save_window_rect(self):
+        try:
+            if self.state() != "normal":
+                return
+            self.cfg.set("window_rect", {"x": int(self.winfo_x()), "y": int(self.winfo_y())})
+            self.cfg.save()
+        except Exception:
+            pass
+
     def _quit_app(self):
         self._quitting = True
         self.on_close()
@@ -469,29 +521,13 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             cur = round(float(self.winfo_fpixels("1i")) / 96.0, 2)
             if self._last_dpi is None:
                 self._last_dpi = cur
-            elif abs(cur - self._last_dpi) >= 0.1 and not self._dpi_notice:
-                self._dpi_notice = True
-                log("检测到 DPI 变化 %.2f -> %.2f" % (self._last_dpi, cur), "WARN")
-                self.after(200, lambda: self._prompt_dpi_change(cur))
+            elif abs(cur - self._last_dpi) >= 0.1:
+                log("检测到 DPI 变化 %.2f -> %.2f（界面尺寸固定，不做调整）"
+                    % (self._last_dpi, cur), "WARN")
+                self._last_dpi = cur
         except Exception:
             pass
         self.after(3000, self._watch_dpi)
-
-    def _prompt_dpi_change(self, scale):
-        try:
-            rec = max(0.85, min(1.6, round(scale, 2)))
-            if messagebox.askyesno(
-                    "显示器缩放变化",
-                    "检测到显示器 DPI 变为约 %.0f%%。\n"
-                    "是否把界面缩放调整为 %.0f%% 并立即重启？" % (scale * 100, rec * 100)):
-                self.cfg.set("ui_scale", rec)
-                self.cfg.save()
-                self.after(200, self._restart_app)
-            else:
-                self._last_dpi = scale
-                self._dpi_notice = False
-        except Exception:
-            pass
 
     def _handle_rule_action(self, rule_id: str, act: dict):
         try:
@@ -666,6 +702,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             else:
                 self._discard_edit()
 
+        self._save_window_rect()
         if not self._quitting:
             if self.tray is None:
                 # 托盘不可用时直接退出，避免窗口消失后无法恢复
@@ -676,9 +713,6 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
                     self.withdraw()
                 except Exception:
                     pass
-                if not self._tray_hint:
-                    self._tray_hint = True
-                    self.tray.notify("已最小化到托盘，双击图标恢复")
                 return
 
         self._shutdown_backends()
