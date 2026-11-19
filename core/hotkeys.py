@@ -91,9 +91,6 @@ class HotkeyManager(threading.Thread):
                 self._binding_by_id[hid] = cb
             hid += 1
         self._ready.set()
-
-    def wait_ready(self, timeout: float = 1.0) -> bool:
-        return bool(self._ready.wait(timeout))
         while not self._stop.is_set():
             ret = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
             if ret == 0 or ret == -1:
@@ -111,6 +108,9 @@ class HotkeyManager(threading.Thread):
             except Exception:
                 pass
         self._registered.clear()
+
+    def wait_ready(self, timeout: float = 1.0) -> bool:
+        return bool(self._ready.wait(timeout))
 
     def stop(self) -> None:
         self._stop.set()

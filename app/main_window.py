@@ -263,6 +263,12 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             except Exception:
                 pass
         self.page = key
+        try:
+            frame = self.pages.get(key)
+            if frame is not None:
+                self.after(120, frame.fill_height)
+        except Exception:
+            pass
 
     def _toast(self, msg: str, level: str = "info"):
         color = {"info": theme.MUTED, "ok": theme.OK, "warn": theme.WARN,

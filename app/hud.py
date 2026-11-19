@@ -58,6 +58,7 @@ class HudWindow(tk.Toplevel):
         self.alpha = float(cfg.get("hud.alpha", 1.0) or 1.0)
         self.click_through = bool(cfg.get("hud.click_through", False))
         self._state = "idle"
+        self._status_text = ""
         self._drag = None
         self._chip_tags = []
 
@@ -142,6 +143,14 @@ class HudWindow(tk.Toplevel):
         _shadow_text(fc, 39, 23, "WizFlow", self.f_title, "#e8edf6", "w")
 
         text, fill, line, fg = STATE_STYLE.get(self._state, STATE_STYLE["idle"])
+        if self._state == "running" and "第" in self._status_text:
+            text = self._status_text.replace("运行中", "回放中")[:10]
+        elif self._state == "recording":
+            text = "录制中"
+        elif self._state == "paused":
+            text = "已暂停"
+        elif self._state == "idle":
+            text = "空闲"
         pw = 12 + 6 + 5 + self.f_pill.measure(text) + 10
         x2 = CARD_W - 12
         x1 = x2 - pw
@@ -198,8 +207,10 @@ class HudWindow(tk.Toplevel):
             state = "running"
         else:
             state = "idle"
-        if state != self._state:
-            self._state = state
+        changed = (state != self._state) or (t != self._status_text)
+        self._state = state
+        self._status_text = t
+        if changed:
             self._draw()
 
     def refresh_hotkeys(self):

@@ -197,6 +197,8 @@ class ScrollPage(ctk.CTkFrame):
         self.win = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
         self._job = None
         self._bars_job = None
+        self._syncing = False
+        self._last_sig = None
         self.canvas.bind("<Configure>", self._schedule)
         self.inner.bind("<Configure>", self._schedule)
         self.canvas.bind_all("<MouseWheel>", self._wheel, add="+")
@@ -209,6 +211,9 @@ class ScrollPage(ctk.CTkFrame):
 
     def _sync(self):
         self._job = None
+        if self._syncing:
+            return
+        self._syncing = True
         try:
             cw = max(1, self.canvas.winfo_width())
             width = max(self.MIN_WIDTH, cw)
@@ -218,14 +223,28 @@ class ScrollPage(ctk.CTkFrame):
                 cur = 0
             if cur != width:
                 self.inner.configure(width=width)
-            try:
-                self.canvas.itemconfigure(self.win, width=width)
-            except Exception:
-                pass
             self.update_idletasks()
             height = max(1, self.inner.winfo_reqheight())
+            try:
+                cur_w = int(self.canvas.itemcget(self.win, "width") or 0)
+                if cur_w != width:
+                    self.canvas.itemconfigure(self.win, width=width)
+            except Exception:
+                pass
             self.canvas.configure(scrollregion=(0, 0, width, height))
             self._apply_bars()
+        except Exception:
+            pass
+        finally:
+            self._syncing = False
+
+    def fill_height(self):
+        """把页面内容高度补到视口高度，让卡片铺满。"""
+        try:
+            ch = max(1, self.canvas.winfo_height())
+            h = max(ch, self.inner.winfo_reqheight())
+            self.canvas.itemconfigure(self.win, width=self.canvas.winfo_width(), height=h)
+            self.canvas.configure(scrollregion=(0, 0, self.canvas.winfo_width(), h))
         except Exception:
             pass
 
@@ -249,7 +268,7 @@ class ScrollPage(ctk.CTkFrame):
             cw = max(1, self.canvas.winfo_width())
             ch = max(1, self.canvas.winfo_height())
             need_h = (bbox[2] - bbox[0]) > cw + 8
-            need_v = (bbox[3] - bbox[1]) > ch + 8
+            need_v = (bbox[3] - bbox[1]) > ch + 1
             if need_h:
                 self.hbar.grid()
             else:

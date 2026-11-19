@@ -198,6 +198,7 @@ class RecordPageMixin:
         self.event_tree.bind("<<TreeviewSelect>>", lambda _e: self._update_hint())
         self.after(15000, self._autosave_tick)
         self.after(1400, self._maybe_restore_draft)
+        self.after(80, self._refresh_hotkey_button_text)
 
     # ------------------------------------------------------------ 脚本
     def _refresh_scripts(self, select: Path | None = None):
@@ -668,7 +669,8 @@ class RecordPageMixin:
             return
         self.recording = True
         self._rec_started = time.time()
-        self.btn_record.configure(text="■  停止录制    F8", fg_color="#7f1d1d")
+        self.btn_record.configure(fg_color="#7f1d1d")
+        self._refresh_hotkey_button_text()
         self._set_header("录制中", theme.DANGER)
         self._toast("录制已开始，按 F8 或点击按钮结束", "ok")
 
@@ -677,7 +679,8 @@ class RecordPageMixin:
             return
         self.recorder.stop()
         self.recording = False
-        self.btn_record.configure(text="●  开始录制    F8", fg_color=theme.DANGER)
+        self.btn_record.configure(fg_color=theme.DANGER)
+        self._refresh_hotkey_button_text()
         self._set_header("空闲", theme.OK)
         if self.events:
             path = new_script_path()
@@ -713,7 +716,7 @@ class RecordPageMixin:
         script_dir = self.script_path.parent if self.script_path else SCRIPTS_DIR
         self.player.current_script = self.script_path
         if self.player.start(self.events, loops, speed, script_dir=script_dir):
-            self.btn_play.configure(text="⏸  暂停    F6")
+            self._refresh_hotkey_button_text()
             self.play_pill.set("运行中", theme.OK)
             self._set_header("回放中", theme.ACCENT)
             self._append_play_log("启动：%d 个事件，循环 %s，速度 %.2fx"
@@ -793,7 +796,7 @@ class RecordPageMixin:
         if not self.player.start(self.events, loops, speed, script_dir=path.parent):
             self._toast("%s：脚本启动失败" % source, "error")
             return False
-        self.btn_play.configure(text="⏸  暂停    F6")
+        self._refresh_hotkey_button_text()
         self.play_pill.set("运行中", theme.OK)
         self._set_header("回放中", theme.ACCENT)
         self._append_play_log("%s启动：%s" % (source, path.name))
@@ -842,7 +845,7 @@ class RecordPageMixin:
     def _apply_player_done(self, reason: str):
         self._rule_paused = False
         self.player.current_script = self.script_path
-        self.btn_play.configure(text="▶  启动    F6")
+        self._refresh_hotkey_button_text()
         self._set_header("空闲", theme.OK)
         if reason == "finished":
             self.play_pill.set("已完成", theme.OK)
@@ -854,6 +857,17 @@ class RecordPageMixin:
         else:
             self.play_pill.set("异常", theme.DANGER)
             self._append_play_log("回放异常，详见日志")
+
+    def _refresh_hotkey_button_text(self):
+        try:
+            rec = str(self.cfg.get("hotkeys.record", "F8"))
+            start = str(self.cfg.get("hotkeys.start_pause", "F6"))
+            self.btn_record.configure(
+                text=("■  停止录制    %s" if self.recording else "●  开始录制    %s") % rec)
+            self.btn_play.configure(
+                text=("⏸  暂停    %s" if self.player.running else "▶  启动    %s") % start)
+        except Exception:
+            pass
 
     def _append_play_log(self, text: str):
         try:
