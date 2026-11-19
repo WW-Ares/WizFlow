@@ -253,25 +253,39 @@ class RuleDialog(ctk.CTkToplevel):
 
     def _pick_region(self):
         initial = self._region()
+        root = getattr(self, "master_app", None)
         try:
             self.withdraw()
+            if root is not None:
+                root.iconify()
         except Exception:
             pass
 
         def restore():
             try:
-                self.deiconify(); self.lift(); self.focus_force()
+                if root is not None:
+                    root.deiconify()
+                    root.lift()
+            except Exception:
+                pass
+            try:
+                self.deiconify()
+                self.lift()
+                self.focus_force()
             except Exception:
                 pass
 
-        def done(rect):
-            restore()
+        def done(rect, capture=False):
             for key, val in zip(("rx", "ry", "rw", "rh"), rect):
                 self.region_vars[key].set(str(int(val)))
             self._refresh_thumb()
+            self.after(120, restore)
 
-        self.after(160, lambda: RegionPicker(self, rect=initial, on_confirm=done,
-                                             on_cancel=restore))
+        def cancelled():
+            self.after(120, restore)
+
+        self.after(200, lambda: RegionPicker(self, rect=initial, on_confirm=done,
+                                             on_cancel=cancelled))
 
     def _refresh_thumb(self):
         region = self._region()

@@ -511,12 +511,21 @@ class EventEditorDialog(ctk.CTkToplevel):
 
     def _pick_monitor_region(self):
         initial = self._monitor_region()
+        root = getattr(self, "master_app", None)
         try:
             self.withdraw()
+            if root is not None:
+                root.iconify()
         except Exception:
             pass
 
         def restore():
+            try:
+                if root is not None:
+                    root.deiconify()
+                    root.lift()
+            except Exception:
+                pass
             try:
                 self.deiconify()
                 self.lift()
@@ -524,14 +533,14 @@ class EventEditorDialog(ctk.CTkToplevel):
             except Exception:
                 pass
 
-        def done(rect):
-            restore()
+        def done(rect, capture=False):
             self._set_monitor_region(rect)
+            self.after(120, restore)
 
         def cancelled():
-            restore()
+            self.after(120, restore)
 
-        self.after(160, lambda: RegionPicker(self, rect=initial,
+        self.after(200, lambda: RegionPicker(self, rect=initial,
                                              on_confirm=done, on_cancel=cancelled))
 
     def _refresh_monitor_thumb(self):
