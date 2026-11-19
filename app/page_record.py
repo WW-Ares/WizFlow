@@ -482,14 +482,23 @@ class RecordPageMixin:
         evs = self._current_events()
         ev = evs[i]
         typ = str(ev.get("type", "")).lower()
-        if typ in ("monitor", "monitor_group"):
+        if typ == "monitor_group":
             self._show_page("monitor")
-            if typ == "monitor_group" and hasattr(self, "_open_rules_window"):
+            if hasattr(self, "_open_rules_window"):
                 try:
                     self._open_rules_window()
                 except Exception:
                     pass
-            self._toast("监控节点请在「区域监控」页编辑", "info")
+            self._toast("多图标监控组请在「区域监控」页编辑", "info")
+            return
+        if typ == "monitor":
+            events = self._node_dialog(ev)
+            if not events:
+                return
+            evs[i:i + 1] = events
+            self._rebuild_events()
+            self._select_range(i, i + len(events) - 1)
+            self._toast("监控节点已更新（未保存）", "ok")
             return
         events = self._node_dialog(ev)
         if not events:
@@ -664,6 +673,7 @@ class RecordPageMixin:
         self.cfg.set("loop_count", loops)
         self.cfg.save()
         script_dir = self.script_path.parent if self.script_path else SCRIPTS_DIR
+        self.player.current_script = self.script_path
         if self.player.start(self.events, loops, speed, script_dir=script_dir):
             self.btn_play.configure(text="⏸  暂停    F6")
             self.play_pill.set("运行中", theme.OK)
@@ -675,30 +685,81 @@ class RecordPageMixin:
     def _pause_play(self, rule: bool = False):
         if not self.player.running:
             return
-        if not rule:
-            self._rule_paused = False
-        paused = self.player.toggle_pause()
-        if paused:
-            if rule:
-                self._rule_paused = True
-            self.play_pill.set("已暂停", theme.WARN)
-            self._set_header("已暂停", theme.WARN)
-            self._append_play_log("已暂停（后台监控）" if rule else "已暂停")
-        else:
-            self._rule_paused = False
+        self._rule_paused = False
+        if self.player.paused:
+            self.player.resume(None)
             self.play_pill.set("运行中", theme.OK)
             self._set_header("回放中", theme.ACCENT)
             self._append_play_log("继续运行")
+        else:
+            self.player.pause("manual")
+            self.play_pill.set("已暂停", theme.WARN)
+            self._set_header("已暂停", theme.WARN)
+            self._append_play_log("已暂停")
 
     def _resume_play(self):
-        if not self.player.running or not self.player.paused:
+        if not self.player.running:
             self._rule_paused = False
             return
-        self.player.resume()
+        self.player.resume(None)
         self._rule_paused = False
         self.play_pill.set("运行中", theme.OK)
         self._set_header("回放中", theme.ACCENT)
-        self._append_play_log("继续运行（后台监控）")
+        self._append_play_log("继续运行")
+
+    def _pause_for_rule(self, reason: str):
+        if not self.player.running or self.player.paused:
+            return False
+        self.player.pause(reason)
+        self.play_pill.set("已暂停", theme.WARN)
+        self._set_header("已暂停", theme.WARN)
+        self._append_play_log("已暂停（规则）")
+        return True
+
+    def _resume_for_rule(self, reason: str):
+        if not self.player.running:
+            return False
+        self.player.resume(reason)
+        if not self.player.paused:
+            self.play_pill.set("运行中", theme.OK)
+            self._set_header("回放中", theme.ACCENT)
+            self._append_play_log("继续运行（规则）")
+        return True
+
+    def start_script_by_path(self, path: Path, source: str = "规则") -> bool:
+        """按路径启动脚本；已在跑会先停止，用于后台规则切换。"""
+        if getattr(self, "_editing", False):
+            self._toast("%s：编辑模式下不切换脚本" % source, "warn")
+            return False
+        try:
+            doc = ScriptDoc.load(path)
+        except Exception as exc:
+            self._toast("%s脚本加载失败：%s" % (source, exc), "error")
+            return False
+        if self.player.running:
+            self.player.stop()
+            self.player.wait_stopped(3.0)
+        self.script_path = path
+        self.events = doc.events
+        self.player.current_script = path
+        self._rebuild_events()
+        self._refresh_scripts(select=path)
+        try:
+            loops = max(0, int(float(self.cfg.get("loop_count", 1) or 1)))
+        except Exception:
+            loops = 1
+        try:
+            speed = float(self.cfg.get("speed", 1.0) or 1.0)
+        except Exception:
+            speed = 1.0
+        if not self.player.start(self.events, loops, speed, script_dir=path.parent):
+            self._toast("%s：脚本启动失败" % source, "error")
+            return False
+        self.btn_play.configure(text="⏸  暂停    F6")
+        self.play_pill.set("运行中", theme.OK)
+        self._set_header("回放中", theme.ACCENT)
+        self._append_play_log("%s启动：%s" % (source, path.name))
+        return True
 
     def _run_script_file(self, name: str):
         name = (name or "").strip()
@@ -736,6 +797,7 @@ class RecordPageMixin:
 
     def _apply_player_done(self, reason: str):
         self._rule_paused = False
+        self.player.current_script = self.script_path
         self.btn_play.configure(text="▶  启动    F6")
         self._set_header("待机", theme.OK)
         if reason == "finished":

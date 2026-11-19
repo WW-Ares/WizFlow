@@ -9,6 +9,7 @@ import threading
 import time
 import traceback
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox
 
 import customtkinter as ctk
@@ -25,7 +26,7 @@ from core.monitor import MonitorProfile, ProbeResult
 from core.player import Player
 from core.recorder import Recorder
 from core.screen import TemplateMatcher
-from core.supervisor import ScriptSupervisor
+from core.rules import BackgroundRuleEngine
 from core.vdisplay import keepalive
 from core.winapi import is_admin, set_awake
 from .page_monitor import MonitorPageMixin
@@ -50,9 +51,9 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self.recorder = Recorder(self._record_callback)
         self.player = Player(self.matcher, self._player_status, self._player_finished)
         self.hotkeys: HotkeyManager | None = None
-        self.supervisor = ScriptSupervisor(
-            lambda: dict(self.cfg.get("script_supervisor", {}) or {}),
-            lambda action, target: self.ui_queue.put(("supervisor", action, target)))
+        self.rules_engine = BackgroundRuleEngine(
+            lambda: self.cfg.data,
+            lambda rule_id, act: self.ui_queue.put(("rule_action", rule_id, act)))
         self._rule_paused = False
 
         self.script_path = None
@@ -342,8 +343,8 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
                     self._toast(msg[1], msg[2] if len(msg) > 2 else "info")
                 elif kind == "tray":
                     self._handle_tray(msg[1])
-                elif kind == "supervisor":
-                    self._handle_supervisor_action(msg[1], msg[2] if len(msg) > 2 else "")
+                elif kind == "rule_action":
+                    self._handle_rule_action(msg[1], msg[2])
         except queue.Empty:
             pass
         except Exception as exc:
@@ -366,21 +367,64 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self.hotkeys = HotkeyManager(bindings, on_error=lambda m: self.ui_queue.put(("toast", m, "warn")))
         self.hotkeys.start()
 
-    def _handle_supervisor_action(self, action: str, target: str):
-        action = str(action or "").lower()
-        if action == "pause":
-            if self.player.running and not self.player.paused:
-                self._pause_play(rule=True)
-        elif action == "resume":
-            if self._rule_paused:
-                self._resume_play()
-        elif action == "stop":
+    def _handle_rule_action(self, rule_id: str, act: dict):
+        try:
+            self._execute_rule_action(rule_id, act or {})
+        except Exception as exc:
+            log("后台规则动作执行失败: %s" % exc, "ERROR")
+
+    def _resolve_action_script(self, name: str):
+        name = str(name or "").strip()
+        if not name:
+            return None
+        p = Path(name)
+        if p.is_absolute():
+            return p
+        if name.replace("\\", "/").startswith("scripts/"):
+            return ROOT / Path(name)
+        return SCRIPTS_DIR / name
+
+    def _execute_rule_action(self, rule_id: str, act: dict):
+        if str(act.get("type", "script")).lower() != "script":
+            return
+        op = str(act.get("op", "run")).lower()
+        target = str(act.get("target", "current")).lower()
+        reason = "rule:%s" % (rule_id or "group")
+        path = self._resolve_action_script(act.get("script", ""))
+        if target == "script" and op in ("pause", "resume", "stop"):
+            if not path or not self.script_path:
+                return
+            try:
+                if Path(self.script_path).resolve() != path.resolve():
+                    return
+            except Exception:
+                return
+        if op == "run":
+            if not path or not Path(path).exists():
+                self._toast("后台规则：脚本不存在 %s" % (act.get("script") or ""), "warn")
+                return
+            if self.player.running:
+                same = False
+                try:
+                    same = bool(self.script_path) and Path(self.script_path).resolve() == path.resolve()
+                except Exception:
+                    same = False
+                if same:
+                    if self.player.paused:
+                        self._resume_for_rule(reason)
+                    return
+                if str(act.get("busy", "switch")).lower() == "ignore":
+                    return
+            self.start_script_by_path(path, source="规则")
+        elif op == "pause":
+            self._pause_for_rule(reason)
+        elif op == "resume":
+            self._resume_for_rule(reason)
+        elif op == "stop":
             if self.player.running:
                 self._stop_play()
             elif self.recording:
                 self._stop_record()
-        elif action == "run":
-            self._run_script_file(target)
 
     def _handle_hotkey(self, action: str):
         if action == "start_pause":
@@ -399,8 +443,8 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
     # ================================================================ 会话保活
     def _startup(self):
         self._start_hotkeys()
-        if not self.supervisor.is_alive():
-            self.supervisor.start()
+        if not self.rules_engine.is_alive():
+            self.rules_engine.start()
         if bool(self.cfg.get("vdisplay_parsec", False)):
             self.parsec_status.configure(text="状态：正在启动虚拟屏…", text_color=theme.WARN)
             threading.Thread(target=self._enable_parsec_bg, daemon=True).start()
@@ -446,7 +490,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
                 self.hotkeys.stop()
                 self.hotkeys = None
             try:
-                self.supervisor.stop()
+                self.rules_engine.stop()
             except Exception:
                 pass
             if keepalive.enabled:

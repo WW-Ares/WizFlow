@@ -226,6 +226,15 @@ def _selftest() -> int:
             s.join(timeout=2)
             sup_mod.make_source = orig
 
+    def t_background():
+        from core.rules import normalize_rule
+        r = normalize_rule({"name": "x", "on_hit": [{"type": "script", "op": "run"}]})
+        assert r["capture_mode"] == "screen" and r["on_hit"][0]["op"] == "run"
+        c = Config(tmp / "rules.json")
+        assert isinstance(c.get("background_rules"), list)
+        assert c.get("background_group.mode") == "parallel"
+        return "rules defaults ok"
+
     check("config", t_config)
     check("script-roundtrip", t_script)
     check("script-legacy", t_legacy)
@@ -236,6 +245,7 @@ def _selftest() -> int:
     check("event-describe", t_describe)
     check("parsec-bundle", t_parsec)
     check("supervisor", t_supervisor)
+    check("background-rules", t_background)
     check("window-capture", t_capture)
 
     text = "\n".join(lines)

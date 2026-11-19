@@ -19,6 +19,7 @@ import numpy as np
 import core.screen as screen
 import core.player as player_mod
 from core.player import Player
+from core.script import ScriptDoc
 from core.screen import TemplateMatcher, save_png, to_ctk_image
 
 
@@ -489,6 +490,138 @@ def test_supervisor_edges():
         sup_mod.make_source = orig
 
 
+def test_pause_reasons():
+    p = Player(TemplateMatcher(), lambda t, pr: None, lambda r: None)
+    p.dry_run = True
+    p.start([{"type": "wait", "ms": 3000}], 1, 1.0)
+    try:
+        assert p.pause("rule:A")
+        assert p.pause("rule:B")
+        assert p.paused
+        p.resume("rule:A")
+        assert p.paused, "still paused by rule:B"
+        p.resume("rule:B")
+        assert not p.paused
+        p.resume(None)
+        return "pause reasons ok"
+    finally:
+        p.stop()
+        p.wait_stopped(2)
+
+
+def test_inline_node_actions():
+    import core.player as player_mod
+
+    tmp = Path(tempfile.mkdtemp(prefix="kmg_inline_"))
+    frame = make_frame()
+    tpl = frame[60:91, 80:121].copy()
+    tpl_path = tmp / "tpl.png"
+    save_png(tpl, tpl_path)
+    sub = tmp / "sub.json"
+    ScriptDoc([{"type": "wait", "ms": 10}], sub).save()
+
+    class FakeSource:
+        origin = (0, 0)
+        def __init__(self, img):
+            self.img = img
+        def grab(self, rect):
+            return self.img.copy()
+        def close(self):
+            pass
+
+    statuses = []
+    orig = player_mod.make_source
+    try:
+        player_mod.make_source = lambda ev: FakeSource(frame)
+        p = Player(TemplateMatcher(), lambda t, pr: statuses.append(t), lambda r: None)
+        p.dry_run = True
+        p.current_script = tmp / "main.json"
+        ev = {"type": "monitor", "name": "m", "region": [0, 0, 200, 150],
+              "template": str(tpl_path), "threshold": 0.9, "wait_mode": "once",
+              "on_hit": [{"type": "script", "op": "run", "script": str(sub)}],
+              "on_miss": [{"type": "script", "op": "stop"}]}
+        assert p._exec_events([ev], None, top_level=True)
+        assert any("运行子脚本" in s for s in statuses), statuses
+
+        player_mod.make_source = lambda ev: FakeSource(np.zeros_like(frame))
+        statuses.clear()
+        ev2 = dict(ev)
+        ev2["on_hit"] = []
+        ev2["on_miss"] = []
+        assert p._exec_events([ev2], None, top_level=True)
+        assert any("未命中" in s for s in statuses), statuses
+        return "inline hit/miss ok"
+    finally:
+        player_mod.make_source = orig
+
+
+def test_background_rules():
+    import core.rules as rules_mod
+    from core.rules import BackgroundRuleEngine
+
+    tmp = Path(tempfile.mkdtemp(prefix="kmg_rules_"))
+    frame = make_frame()
+    tpl = frame[60:91, 80:121].copy()
+    tpl_path = tmp / "tpl.png"
+    save_png(tpl, tpl_path)
+    state = {"on": False}
+
+    class FakeSource:
+        origin = (0, 0)
+        def grab(self, rect):
+            return frame.copy() if state["on"] else np.zeros_like(frame)
+        def close(self):
+            pass
+
+    cfg = {
+        "background_rules": [
+            {"id": "A", "name": "A", "enabled": True, "priority": 90,
+             "template": str(tpl_path), "threshold": 0.9, "region": [0, 0, 200, 150],
+             "capture_mode": "screen", "poll_ms": 30, "stable_frames": 1,
+             "cooldown_ms": 0,
+             "on_hit": [{"type": "script", "op": "run", "target": "script",
+                         "script": str(tmp / "s1.json"), "busy": "switch"}],
+             "on_miss": []},
+            {"id": "B", "name": "B", "enabled": True, "priority": 80,
+             "template": str(tpl_path), "threshold": 0.9, "region": [0, 0, 200, 150],
+             "capture_mode": "screen", "poll_ms": 30, "stable_frames": 1,
+             "cooldown_ms": 0,
+             "on_hit": [{"type": "script", "op": "pause", "target": "current"}],
+             "on_miss": [{"type": "script", "op": "resume", "target": "current"}]},
+        ],
+        "background_group": {"mode": "parallel", "grace_ms": 80,
+                             "on_none_present": [{"type": "script", "op": "resume",
+                                                  "target": "current"}]},
+    }
+    actions = []
+    orig = rules_mod.make_source
+    rules_mod.make_source = lambda rule: FakeSource()
+    eng = BackgroundRuleEngine(lambda: cfg, lambda rid, act: actions.append((rid, act)))
+    try:
+        eng.start()
+        state["on"] = True
+        end = time.time() + 3
+        while time.time() < end:
+            ops = {a.get("op") for _rid, a in actions}
+            if "run" in ops and "pause" in ops:
+                break
+            time.sleep(0.03)
+        ops = {a.get("op") for _rid, a in actions}
+        assert "run" in ops and "pause" in ops, actions
+        state["on"] = False
+        end = time.time() + 3
+        while time.time() < end:
+            if any(a.get("op") == "resume" for _rid, a in actions):
+                break
+            time.sleep(0.03)
+        assert any(a.get("op") == "resume" for _rid, a in actions), actions
+        return "rule hit/miss actions ok"
+    finally:
+        eng.stop()
+        eng.join(timeout=2)
+        rules_mod.make_source = orig
+
+
 def main():
     tests = [test_monitor_hit_and_anchor, test_monitor_timeout, test_monitor_click_modes,
              test_monitor_key_action, test_hotkey_parse,
@@ -498,7 +631,8 @@ def main():
              test_event_describe, test_wait_and_script_node, test_parsec_bundle,
              test_wheel_action, test_wheel_multi_action, test_keygrab_names,
              test_monitor_profile_wheel_roundtrip, test_window_capture,
-             test_supervisor_edges]
+             test_supervisor_edges, test_pause_reasons,
+             test_inline_node_actions, test_background_rules]
     failed = 0
     for fn in tests:
         try:

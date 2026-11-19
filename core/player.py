@@ -44,6 +44,9 @@ class Player:
         self.speed = 1.0
         self.dry_run = False
         self._script_dir = ROOT
+        self._pause_reasons: set[str] = set()
+        self._script_stack: list[Path] = []
+        self.current_script: Path | None = None
         self._progress = 0.0
         self._total = 1
 
@@ -55,7 +58,9 @@ class Player:
                 return False
             self._stop.clear()
             self._paused.clear()
+            self._pause_reasons.clear()
             self.paused = False
+            self._script_stack = [self.current_script] if self.current_script else []
             self.speed = min(10.0, max(0.1, float(speed or 1.0)))
             self._script_dir = Path(script_dir) if script_dir else ROOT
             self._progress = 0.0
@@ -70,16 +75,23 @@ class Player:
         self._stop.set()
         self._paused.clear()
 
-    def pause(self) -> bool:
+    def pause(self, reason: str = "manual") -> bool:
         if not self.running:
             return False
+        self._pause_reasons.add(str(reason or "manual"))
         self._paused.set()
         self.paused = True
         return True
 
-    def resume(self) -> bool:
+    def resume(self, reason: str | None = None) -> bool:
         if not self.running:
             return False
+        if reason is None:
+            self._pause_reasons.clear()
+        else:
+            self._pause_reasons.discard(str(reason))
+        if self._pause_reasons:
+            return True
         self._paused.clear()
         self.paused = False
         return True
@@ -88,12 +100,20 @@ class Player:
         if not self.running:
             return False
         if self._paused.is_set():
+            self._pause_reasons.clear()
             self._paused.clear()
             self.paused = False
         else:
+            self._pause_reasons.add("manual")
             self._paused.set()
             self.paused = True
         return self.paused
+
+    def wait_stopped(self, timeout: float = 3.0) -> bool:
+        thread = getattr(self, "_thread", None)
+        if thread is not None and thread.is_alive():
+            thread.join(timeout)
+        return not self.running
 
     def shutdown(self) -> None:
         self.stop()
@@ -283,11 +303,18 @@ class Player:
             poll_ms = int(ev.get("poll_ms", 150))
             timeout_ms = int(ev.get("timeout_ms", 8000))
             self.on_status("监控等待: %s  (%.2f 阈值)" % (name, threshold), self._progress)
+            wait_mode = str(ev.get("wait_mode", "timeout") or "timeout").lower()
+            if wait_mode == "once":
+                remaining_ms = 0.0
+            elif wait_mode == "forever":
+                remaining_ms = None
+            else:
+                wait_ms = int(ev.get("wait_ms", timeout_ms) or 0)
+                remaining_ms = 0.0 if wait_ms <= 0 else float(wait_ms)
             matched = False
             best_score = 0.0
             frame = None
             res = MatchResult()
-            remaining_ms = None if timeout_ms <= 0 else float(timeout_ms)
             multiscale = bool(ev.get("multiscale", True))
             rgn = [int(v) for v in region]
             while not self._stop.is_set():
@@ -317,6 +344,17 @@ class Player:
                 ox = int(ev.get("offset_x", 0))
                 oy = int(ev.get("offset_y", 0))
                 tx, ty = cx + ox, cy + oy
+                if "on_hit" in ev:
+                    self.on_status("监控命中: %s  score=%.3f  执行命中动作"
+                                   % (name, res.score), self._progress)
+                    log("monitor hit name=%s score=%.3f inline-actions" % (name, res.score))
+                    if not self._exec_script_actions(ev.get("on_hit") or [], (cx, cy)):
+                        return False
+                    nested = ev.get("on_match") or []
+                    if nested:
+                        if not self._exec_events(nested, (cx, cy)):
+                            return False
+                    return True
                 if "hit_action" in ev:
                     hit_action = str(ev.get("hit_action", "mouse"))
                 else:
@@ -436,7 +474,11 @@ class Player:
                         except Exception as exc:
                             self.on_status("同步脚本执行失败: %s" % exc, None)
             else:
-                self.on_status("监控超时: %s  best=%.3f" % (name, best_score), self._progress)
+                self.on_status("监控超时/未命中: %s  best=%.3f" % (name, best_score), self._progress)
+                if "on_miss" in ev:
+                    if not self._exec_script_actions(ev.get("on_miss") or [], None):
+                        return False
+                    return True
                 nested = ev.get("on_timeout") or []
                 if nested:
                     if not self._exec_events(nested, None):
@@ -448,6 +490,73 @@ class Player:
         finally:
             if source is not None:
                 source.close()
+
+    def _exec_script_actions(self, actions, ctx=None) -> bool:
+        """执行节点内的动作列表；返回 False 表示停止整个回放。"""
+        for act in actions or []:
+            if self._stop.is_set():
+                return False
+            if not isinstance(act, dict):
+                continue
+            typ = str(act.get("type", "script")).lower()
+            if typ == "wait":
+                ms = max(0, int(act.get("ms", 200)))
+                if not self._wait(ms):
+                    return False
+                continue
+            if typ == "notify":
+                self.on_status(str(act.get("text", "")), self._progress)
+                continue
+            if typ != "script":
+                continue
+            op = str(act.get("op", "run")).lower()
+            if op == "stop":
+                self.on_status("节点要求停止当前脚本", self._progress)
+                self.stop()
+                return False
+            if op in ("pause", "resume"):
+                # 脚本内节点运行在回放线程里，暂停/继续自身会死锁，直接忽略
+                self.on_status("脚本内节点不支持暂停/继续当前脚本，已忽略", self._progress)
+                continue
+            if op != "run":
+                continue
+            name = str(act.get("script", "") or "")
+            if not name:
+                continue
+            sp = self._resolve_path(name)
+            if sp is None:
+                self.on_status("子脚本不存在: %s" % name, self._progress)
+                continue
+            try:
+                resolved = sp.resolve()
+            except Exception:
+                resolved = sp
+            if any((str(p) == str(resolved)) for p in self._script_stack):
+                self.on_status("检测到脚本自引用，已跳过: %s" % sp.name, self._progress)
+                continue
+            if len(self._script_stack) >= 4:
+                self.on_status("嵌套层级过深，已跳过: %s" % sp.name, self._progress)
+                continue
+            try:
+                doc = ScriptDoc.load(sp)
+            except Exception as exc:
+                self.on_status("子脚本加载失败: %s" % exc, self._progress)
+                continue
+            events = doc.events
+            anchor = act.get("anchor") or []
+            if len(anchor) == 2 and ctx:
+                dx = int(ctx[0]) - int(anchor[0])
+                dy = int(ctx[1]) - int(anchor[1])
+                events = self._shift_events(events, dx, dy)
+            self._script_stack.append(Path(resolved))
+            self.on_status("运行子脚本: %s" % sp.name, self._progress)
+            try:
+                if not self._exec_events(events, ctx):
+                    return False
+            finally:
+                if self._script_stack:
+                    self._script_stack.pop()
+        return True
 
     def _press_key_combo(self, combo: str, hold_ms: int = 40) -> bool:
         combo = (combo or "").strip()

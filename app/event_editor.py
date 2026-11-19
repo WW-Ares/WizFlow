@@ -15,6 +15,10 @@ from core.winapi import EXTENDED_VKS
 from . import theme
 from .key_record_dialog import KeyRecordDialog
 from .point_picker import PointPicker
+from .region_picker import RegionPicker
+from .icon_crop_dialog import IconCropDialog
+from .rule_dialog import ScriptActionList
+from core.screen import grab, to_ctk_image, load_image
 from .widgets import label
 from .window_icon import apply_window_icon
 
@@ -74,6 +78,8 @@ class EventEditorDialog(ctk.CTkToplevel):
         self._auto_vars: dict[str, tk.BooleanVar] = {}
         self._key_combo = ""
         self._monitor_names = [p.name for p in sorted(ICONS_DIR.glob("*.png"))]
+        self._thumb_img = None
+        self._tpl_thumb_img = None
 
         self.title("编辑节点" if event else "新增节点")
         self.geometry("640x600")
@@ -419,26 +425,185 @@ class EventEditorDialog(ctk.CTkToplevel):
         ctk.CTkButton(row, text="浏览…", width=74, height=30, fg_color=theme.CARD2,
                       hover_color=theme.LINE, font=(theme.FONT, theme.fs(10)),
                       command=self._browse_template).pack(side="left", padx=6)
+        ctk.CTkButton(row, text="从画面圈选", width=96, height=30, fg_color=theme.OK,
+                      hover_color="#16a34a", text_color="#04121f",
+                      font=(theme.FONT, theme.fs(10), "bold"),
+                      command=self._capture_monitor_template).pack(side="left")
         region = ev.get("region") or [0, 0, 0, 0]
         row = self._row()
         self._field_label(row, "监控区域")
         for key, val in zip(("rx", "ry", "rw", "rh"), region):
             label(row, {"rx": "X", "ry": "Y", "rw": "宽", "rh": "高"}[key], 10, theme.MUTED).pack(side="left", padx=(4, 2))
             self.vars[key] = tk.StringVar(value=str(int(val)))
-            self._entry(row, 68, self.vars[key]).pack(side="left")
+            e = self._entry(row, 62, self.vars[key])
+            e.pack(side="left")
+            e.bind("<FocusOut>", lambda _e: self._refresh_monitor_thumb())
+        ctk.CTkButton(row, text="框选区域", width=84, height=30, fg_color=theme.ACCENT,
+                      hover_color=theme.ACCENT2, text_color="#04121f",
+                      font=(theme.FONT, theme.fs(10), "bold"),
+                      command=self._pick_monitor_region).pack(side="left", padx=6)
+        ctk.CTkButton(row, text="刷新预览", width=78, height=30, fg_color=theme.CARD2,
+                      hover_color=theme.LINE, font=(theme.FONT, theme.fs(10)),
+                      command=self._refresh_monitor_thumb).pack(side="left")
         row = self._row()
         self._field_label(row, "识别参数")
-        for key, text, default in (("threshold", "阈值", 0.85), ("poll", "轮询", 150), ("timeout", "超时", 8000)):
+        for key, text, default, src_key in (("threshold", "阈值", 0.85, "threshold"),
+                                             ("poll", "轮询", 150, "poll_ms"),
+                                             ("timeout", "超时", 8000, "timeout_ms")):
             label(row, text, 10, theme.MUTED).pack(side="left", padx=(4, 2))
-            self.vars[key] = tk.StringVar(value="%g" % float(ev.get(key, default) or default))
+            self.vars[key] = tk.StringVar(value="%g" % float(ev.get(src_key, default) or default))
             self._entry(row, 70, self.vars[key]).pack(side="left", padx=(0, 10))
-        self._hint("高级选项（二级搜索、多图标规则）请到「区域监控」页配置。")
+        row = self._row()
+        self._field_label(row, "区域缩略图")
+        self.thumb_label = ctk.CTkLabel(row, text="点击「刷新预览」查看监控区域",
+                                        font=(theme.FONT, theme.fs(10)),
+                                        text_color=theme.MUTED, width=320, height=120,
+                                        fg_color=theme.CARD, corner_radius=8)
+        self.thumb_label.pack(side="left")
+        row = self._row()
+        self._field_label(row, "图标预览")
+        self.tpl_thumb_label = ctk.CTkLabel(row, text="未选择图标",
+                                            font=(theme.FONT, theme.fs(10)),
+                                            text_color=theme.MUTED, width=120, height=90,
+                                            fg_color=theme.CARD, corner_radius=8)
+        self.tpl_thumb_label.pack(side="left")
+        row = self._row()
+        self._field_label(row, "执行方式")
+        wm = str(ev.get("wait_mode", "timeout") or "timeout")
+        wm_rev = {"once": "单次判断", "timeout": "限时等待", "forever": "一直等待"}
+        self.wait_mode_var = tk.StringVar(value=wm_rev.get(wm, "限时等待"))
+        ctk.CTkOptionMenu(row, variable=self.wait_mode_var,
+                          values=["单次判断", "限时等待", "一直等待"], width=120, height=28,
+                          fg_color=theme.CARD2, button_color=theme.LINE,
+                          font=(theme.FONT, theme.fs(10))).pack(side="left")
+        label(row, "等待", 10, theme.MUTED).pack(side="left", padx=(10, 2))
+        self.wait_ms_var = tk.StringVar(value=str(int(ev.get("wait_ms", ev.get("timeout_ms", 8000)) or 0)))
+        self._entry(row, 78, self.wait_ms_var).pack(side="left")
+        label(row, "ms（单次判断忽略）", 9, theme.MUTED).pack(side="left", padx=4)
+
+        label(self.body, "命中时动作", 10, theme.TEXT).pack(anchor="w", padx=4, pady=(8, 2))
+        self.hit_actions = ScriptActionList(self.body, ev.get("on_hit"), inline=True, height=90)
+        self.hit_actions.pack(fill="x", padx=4)
+        label(self.body, "未命中 / 超时动作", 10, theme.TEXT).pack(anchor="w", padx=4, pady=(8, 2))
+        self.miss_actions = ScriptActionList(self.body, ev.get("on_miss"), inline=True, height=90)
+        self.miss_actions.pack(fill="x", padx=4)
+        self._hint("脚本内节点不能暂停/停止当前脚本，只能运行子脚本或停止整个回放。"
+                   "「框选区域」直接在屏幕上拖拽；「从画面圈选」在当前区域截图里裁剪图标。")
+        self.after(150, self._refresh_monitor_thumb)
+        self.after(180, self._refresh_tpl_thumb)
+
+    def _monitor_region(self):
+        try:
+            x = int(float(self.vars["rx"].get() or 0))
+            y = int(float(self.vars["ry"].get() or 0))
+            w = int(float(self.vars["rw"].get() or 0))
+            h = int(float(self.vars["rh"].get() or 0))
+        except Exception:
+            return None
+        if w <= 0 or h <= 0:
+            return None
+        return [x, y, w, h]
+
+    def _set_monitor_region(self, rect):
+        for key, val in zip(("rx", "ry", "rw", "rh"), rect):
+            self.vars[key].set(str(int(val)))
+        self._refresh_monitor_thumb()
+
+    def _pick_monitor_region(self):
+        initial = self._monitor_region()
+        try:
+            self.withdraw()
+        except Exception:
+            pass
+
+        def restore():
+            try:
+                self.deiconify()
+                self.lift()
+                self.focus_force()
+            except Exception:
+                pass
+
+        def done(rect):
+            restore()
+            self._set_monitor_region(rect)
+
+        def cancelled():
+            restore()
+
+        self.after(160, lambda: RegionPicker(self, rect=initial,
+                                             on_confirm=done, on_cancel=cancelled))
+
+    def _refresh_monitor_thumb(self):
+        if not hasattr(self, "thumb_label"):
+            return
+        region = self._monitor_region()
+        if not region:
+            self.thumb_label.configure(text="未设置监控区域", image=None)
+            return
+        try:
+            frame = grab(tuple(region))
+            if frame is None or frame.size == 0:
+                raise ValueError("空画面")
+            from PIL import Image
+            pil = to_ctk_image(frame)
+            pil.thumbnail((320, 120), Image.LANCZOS)
+            cimg = ctk.CTkImage(light_image=pil, dark_image=pil, size=pil.size)
+            self._thumb_img = cimg
+            self.thumb_label.configure(image=cimg, text="")
+        except Exception as exc:
+            self.thumb_label.configure(text="预览失败：%s" % exc, image=None)
+
+    def _refresh_tpl_thumb(self):
+        if not hasattr(self, "tpl_thumb_label"):
+            return
+        path = str(self._tpl_path or "")
+        if not path:
+            self.tpl_thumb_label.configure(text="未选择图标", image=None)
+            return
+        try:
+            img = load_image(Path(path))
+            if img is None:
+                raise ValueError("无法读取")
+            from PIL import Image
+            pil = to_ctk_image(img)
+            pil.thumbnail((120, 90), Image.LANCZOS)
+            cimg = ctk.CTkImage(light_image=pil, dark_image=pil, size=pil.size)
+            self._tpl_thumb_img = cimg
+            self.tpl_thumb_label.configure(image=cimg, text="")
+        except Exception:
+            self.tpl_thumb_label.configure(text="图标读取失败", image=None)
+
+    def _capture_monitor_template(self):
+        region = self._monitor_region()
+        if not region:
+            self._warn("请先框选监控区域，再抓取图标")
+            return
+        try:
+            frame = grab(tuple(region))
+        except Exception as exc:
+            self._warn("抓取区域失败：%s" % exc)
+            return
+        if frame is None or frame.size == 0:
+            self._warn("抓到空画面，请检查窗口是否最小化")
+            return
+        import datetime
+        name = "icon_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        def on_save(path, crop_rect=None):
+            self._tpl_path = "icons/%s" % Path(path).name
+            self.vars["template"].set(Path(path).name)
+            self._monitor_names = [p.name for p in sorted(ICONS_DIR.glob("*.png"))]
+            self._refresh_tpl_thumb()
+
+        IconCropDialog(self, frame, region, name, default_crop=None, on_save=on_save)
 
     def _on_template_pick(self, name):
         if name == "（未选择）":
             self._tpl_path = ""
         else:
             self._tpl_path = "icons/%s" % name
+        self._refresh_tpl_thumb()
 
     def _browse_template(self):
         from tkinter import filedialog
@@ -447,6 +612,7 @@ class EventEditorDialog(ctk.CTkToplevel):
         if path:
             self._tpl_path = path
             self.vars["template"].set(Path(path).name)
+            self._refresh_tpl_thumb()
 
     def _build_group(self):
         n = len(self.event.get("rules") or [])
@@ -624,9 +790,21 @@ class EventEditorDialog(ctk.CTkToplevel):
             thr = max(0.05, min(0.999, float(self._num("threshold"))))
             poll = max(20, int(self._num("poll")))
             timeout = max(0, int(self._num("timeout")))
-            return [{"type": "monitor", "name": name, "region": region, "template": tpl,
-                     "threshold": round(thr, 3), "poll_ms": poll, "timeout_ms": timeout,
-                     "multiscale": True, "delay": delay}]
+            mode = {"单次判断": "once", "限时等待": "timeout",
+                    "一直等待": "forever"}.get(self.wait_mode_var.get(), "timeout")
+            try:
+                wait_ms = max(0, int(float(self.wait_ms_var.get() or 0)))
+            except Exception:
+                wait_ms = 8000
+            on_hit = self.hit_actions.get() if hasattr(self, "hit_actions") else []
+            on_miss = self.miss_actions.get() if hasattr(self, "miss_actions") else []
+            ev = {"type": "monitor", "name": name, "region": region, "template": tpl,
+                  "threshold": round(thr, 3), "poll_ms": poll,
+                  "timeout_ms": wait_ms if mode == "timeout" else 0,
+                  "wait_mode": mode, "wait_ms": wait_ms,
+                  "multiscale": True, "delay": delay,
+                  "on_hit": on_hit, "on_miss": on_miss, "on_timeout": on_miss}
+            return [ev]
 
         if kind == KIND_GROUP:
             if not self.event:

@@ -11,7 +11,7 @@ from pathlib import Path
 
 APP_NAME = "WizFlow"
 APP_ID = "WizFlow.Desktop"
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.4.1"
 
 
 def app_dir() -> Path:
@@ -69,6 +69,9 @@ DEFAULTS = {
         "window_process": "",
         "window_hwnd": 0,
     },
+    "background_rules": [],
+    "background_migrated": False,
+    "background_group": {"mode": "parallel", "grace_ms": 600, "on_none_present": []},
     "monitor_schemes": [],
     "active_scheme": "",
     "multi_monitor": {
@@ -117,6 +120,51 @@ DEFAULTS = {
 }
 
 
+def _migrate_background(data: dict) -> None:
+    """把 1.4.0 的 script_supervisor 配置迁成一条后台规则。"""
+    if data.get("background_migrated"):
+        return
+    data["background_migrated"] = True
+    if data.get("background_rules"):
+        return
+    sup = data.get("script_supervisor") or {}
+    if not (sup.get("enabled") or sup.get("template") or sup.get("region")):
+        return
+
+    def act(op: str, script: str = "") -> dict:
+        if op in ("pause", "resume", "stop"):
+            return {"type": "script", "op": op, "target": "current"}
+        if op == "run":
+            return {"type": "script", "op": "run", "target": "script",
+                    "script": script, "busy": "switch"}
+        return {}
+
+    on_hit = act(str(sup.get("appear", "none")))
+    on_miss = act(str(sup.get("disappear", "none")))
+    run_script = str(sup.get("run_script", "") or "")
+    rule = {
+        "id": "rule_legacy",
+        "name": "后台监控（迁移）",
+        "enabled": bool(sup.get("enabled", False)),
+        "priority": 50,
+        "template": str(sup.get("template", "") or ""),
+        "threshold": float(sup.get("threshold", 0.85) or 0.85),
+        "region": list(sup.get("region") or [0, 0, 0, 0]),
+        "capture_mode": str(sup.get("capture_mode", "screen") or "screen"),
+        "window_title": str(sup.get("window_title", "") or ""),
+        "window_class": str(sup.get("window_class", "") or ""),
+        "window_process": str(sup.get("window_process", "") or ""),
+        "window_hwnd": int(sup.get("window_hwnd", 0) or 0),
+        "poll_ms": int(sup.get("poll_ms", 150) or 150),
+        "stable_frames": int(sup.get("stable_frames", 2) or 2),
+        "cooldown_ms": int(sup.get("cooldown_ms", 500) or 500),
+        "multiscale": True,
+        "on_hit": [on_hit] if on_hit else [],
+        "on_miss": [on_miss] if on_miss else [],
+    }
+    data["background_rules"] = [rule]
+
+
 def _deep_merge(base: dict, patch: dict) -> dict:
     out = copy.deepcopy(base)
     for k, v in (patch or {}).items():
@@ -141,6 +189,7 @@ class Config:
                     raw = json.load(fh)
                 if isinstance(raw, dict):
                     self.data = _deep_merge(DEFAULTS, raw)
+                    _migrate_background(self.data)
         except Exception:
             # 配置损坏时用默认值继续跑，不阻断启动；原文件保留
             self.data = copy.deepcopy(DEFAULTS)

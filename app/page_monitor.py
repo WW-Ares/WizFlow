@@ -369,60 +369,28 @@ class MonitorPageMixin:
                                                     corner_radius=8)
         self.icons_scroll.pack(fill="both", expand=True, pady=(8, 0))
 
-        sup_card = Card(page, "后台监控", "图案出现 / 消失时控制主脚本")
-        sup_card.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        sb = sup_card.body
-        r1 = ctk.CTkFrame(sb, fg_color="transparent")
-        r1.pack(fill="x")
-        self.sup_var = tk.BooleanVar(value=bool(self.cfg.get("script_supervisor.enabled", False)))
-        ctk.CTkSwitch(r1, text="启用后台监控", variable=self.sup_var,
-                      font=(theme.FONT, theme.fs(10)), progress_color=theme.ACCENT,
-                      command=self._toggle_supervisor).pack(side="left")
-        label(r1, "图案", 9).pack(side="left", padx=(12, 0))
-        self.sup_template_var = tk.StringVar(value="（未选择）")
-        self.sup_template_menu = ctk.CTkOptionMenu(
-            r1, variable=self.sup_template_var, values=["（未选择）"], width=150, height=26,
-            fg_color=theme.CARD2, button_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
-            command=lambda _v: self._sup_sync())
-        self.sup_template_menu.pack(side="left", padx=4)
-        ctk.CTkButton(r1, text="同步当前方案", width=100, height=26, fg_color=theme.CARD2,
+        rules_card = Card(page, "后台规则", "图案出现 / 消失时运行、暂停、停止脚本")
+        rules_card.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        rb = rules_card.body
+        rtop = ctk.CTkFrame(rb, fg_color="transparent")
+        rtop.pack(fill="x")
+        ctk.CTkButton(rtop, text="+ 新建规则", width=100, height=28, fg_color=theme.ACCENT,
+                      text_color="#04121f", font=(theme.FONT, theme.fs(10), "bold"),
+                      command=self._new_background_rule).pack(side="left")
+        ctk.CTkButton(rtop, text="从当前方案新建", width=120, height=28, fg_color=theme.CARD2,
                       hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
-                      command=self._sup_sync_scheme).pack(side="left", padx=6)
-        self.sup_status = label(r1, "状态：未启用", 9, theme.MUTED)
-        self.sup_status.pack(side="left", padx=8)
-
-        r2 = ctk.CTkFrame(sb, fg_color="transparent")
-        r2.pack(fill="x", pady=(6, 0))
-        label(r2, "出现时", 9).pack(side="left")
-        self.sup_appear_var = tk.StringVar(value="无")
-        ctk.CTkOptionMenu(r2, variable=self.sup_appear_var,
-                          values=["无", "暂停主脚本", "停止主脚本", "运行脚本"],
-                          width=110, height=26, fg_color=theme.CARD2, button_color=theme.LINE,
-                          font=(theme.FONT, theme.fs(9)),
-                          command=lambda _v: self._sup_sync()).pack(side="left", padx=4)
-        label(r2, "消失时", 9).pack(side="left", padx=(10, 0))
-        self.sup_disappear_var = tk.StringVar(value="无")
-        ctk.CTkOptionMenu(r2, variable=self.sup_disappear_var,
-                          values=["无", "继续主脚本", "停止主脚本", "运行脚本"],
-                          width=110, height=26, fg_color=theme.CARD2, button_color=theme.LINE,
-                          font=(theme.FONT, theme.fs(9)),
-                          command=lambda _v: self._sup_sync()).pack(side="left", padx=4)
-        label(r2, "脚本", 9).pack(side="left", padx=(10, 0))
-        self.sup_script_var = tk.StringVar(value="（无脚本）")
-        self.sup_script_menu = ctk.CTkOptionMenu(
-            r2, variable=self.sup_script_var, values=["（无脚本）"], width=140, height=26,
-            fg_color=theme.CARD2, button_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
-            command=lambda _v: self._sup_sync())
-        self.sup_script_menu.pack(side="left", padx=4)
-        label(r2, "稳定帧", 9).pack(side="left", padx=(8, 0))
-        self.sup_stable_var = tk.StringVar(value="2")
-        entry(r2, width=40, textvariable=self.sup_stable_var).pack(side="left", padx=2)
-        label(r2, "冷却ms", 9).pack(side="left", padx=(8, 0))
-        self.sup_cooldown_var = tk.StringVar(value="500")
-        entry(r2, width=52, textvariable=self.sup_cooldown_var).pack(side="left", padx=2)
-        self._refresh_supervisor_menus()
-        self._load_supervisor_ui()
-        self.after(1000, self._sup_status_tick)
+                      command=self._rule_from_profile).pack(side="left", padx=6)
+        ctk.CTkButton(rtop, text="清空", width=56, height=28, fg_color=theme.CARD2,
+                      hover_color=theme.DANGER, font=(theme.FONT, theme.fs(9)),
+                      command=self._clear_background_rules).pack(side="left")
+        self.rules_status = label(rtop, "状态：未启用", 9, theme.MUTED)
+        self.rules_status.pack(side="left", padx=10)
+        self.rules_scroll = ctk.CTkScrollableFrame(rb, fg_color=theme.BG2,
+                                                    corner_radius=8, height=170)
+        self.rules_scroll.pack(fill="x", expand=True, pady=(6, 0))
+        self._rule_status_labels = {}
+        self._refresh_background_rules()
+        self.after(1000, self._rules_status_tick)
 
         params = Card(page, "监控参数", "命中后位置同步")
         params.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(6, 0))
@@ -677,134 +645,175 @@ class MonitorPageMixin:
         label(body, "回放遇到该节点：轮询区域 → 命中即点击图标中心 → 继续脚本",
               9).grid(row=r, column=0, columnspan=2, sticky="w")
 
-    # ------------------------------------------------------------ 后台监控
-    def _refresh_supervisor_menus(self):
-        if not hasattr(self, "sup_template_menu"):
-            return
-        names = []
-        self._sup_icon_map = {}
-        for ext in ("*.png", "*.jpg", "*.jpeg", "*.bmp"):
-            for p in ICONS_DIR.glob(ext):
-                names.append(p.name)
-                self._sup_icon_map[p.name] = self._icon_rel(p)
-        names.sort()
-        self.sup_template_menu.configure(values=["（未选择）"] + names)
-        cur = str(self.cfg.get("script_supervisor.template", "") or "")
-        if cur and Path(cur).name in names:
-            self.sup_template_var.set(Path(cur).name)
-        else:
-            self.sup_template_var.set("（未选择）")
+    # ------------------------------------------------------------ 后台规则
+    def _background_rules(self) -> list[dict]:
+        return [dict(r) for r in (self.cfg.get("background_rules") or []) if isinstance(r, dict)]
 
-        snames = ["（无脚本）"] + [p.name for p in list_scripts()]
-        self.sup_script_menu.configure(values=snames)
-        cur_s = str(self.cfg.get("script_supervisor.run_script", "") or "")
-        if cur_s and Path(cur_s).name in snames:
-            self.sup_script_var.set(Path(cur_s).name)
-        else:
-            self.sup_script_var.set("（无脚本）")
-
-    def _load_supervisor_ui(self):
-        c = self.cfg.get("script_supervisor", {}) or {}
-        self.sup_var.set(bool(c.get("enabled", False)))
-        self.sup_appear_var.set(SUP_APPEAR_REV.get(str(c.get("appear", "none")), "无"))
-        self.sup_disappear_var.set(SUP_DISAPPEAR_REV.get(str(c.get("disappear", "none")), "无"))
-        self.sup_stable_var.set(str(c.get("stable_frames", 2)))
-        self.sup_cooldown_var.set(str(c.get("cooldown_ms", 500)))
-
-    def _sup_sync(self):
-        if not hasattr(self, "sup_var"):
-            return
-        name = self.sup_template_var.get()
-        template = ""
-        if name and name not in ("（未选择）", "（无）"):
-            template = getattr(self, "_sup_icon_map", {}).get(name, "icons/" + name)
-        sname = self.sup_script_var.get()
-        script = "scripts/" + sname if sname and sname != "（无脚本）" else ""
-        try:
-            stable = max(1, int(float(self.sup_stable_var.get() or 2)))
-        except Exception:
-            stable = 2
-        try:
-            cooldown = max(0, int(float(self.sup_cooldown_var.get() or 500)))
-        except Exception:
-            cooldown = 500
-        patch = {
-            "enabled": bool(self.sup_var.get()),
-            "template": template,
-            "appear": SUP_APPEAR.get(self.sup_appear_var.get(), "none"),
-            "disappear": SUP_DISAPPEAR.get(self.sup_disappear_var.get(), "none"),
-            "run_script": script,
-            "stable_frames": stable,
-            "cooldown_ms": cooldown,
-        }
-        for k, v in patch.items():
-            self.cfg.set("script_supervisor." + k, v)
+    def _save_background_rules(self, rules: list[dict]):
+        self.cfg.set("background_rules", list(rules))
         self.cfg.save()
+        self._refresh_background_rules()
 
-    def _toggle_supervisor(self):
-        on = bool(self.sup_var.get())
-        if on:
-            c = self.cfg.get("script_supervisor", {}) or {}
-            region = list(c.get("region") or [0, 0, 0, 0])
-            if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
-                self._sup_sync_scheme(silent=True)
-                c = self.cfg.get("script_supervisor", {}) or {}
-                region = list(c.get("region") or [0, 0, 0, 0])
-            if not str(c.get("template", "") or "") and self.monitor_profile.template:
-                self.cfg.set("script_supervisor.template", self.monitor_profile.template)
-                self.cfg.save()
-                self._refresh_supervisor_menus()
-            if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
-                self.sup_var.set(False)
-                self._sup_sync()
-                self._toast("先在左侧框选监控区域，再启用后台监控", "warn")
-                return
-        self._sup_sync()
-        self._toast("后台监控已开启" if on else "后台监控已关闭", "ok" if on else "info")
+    @staticmethod
+    def _rule_action_text(actions) -> str:
+        ops = {"run": "运行", "pause": "暂停", "resume": "继续", "stop": "停止"}
+        out = []
+        for act in actions or []:
+            if not isinstance(act, dict):
+                continue
+            op = ops.get(str(act.get("op", "")), str(act.get("op", "")))
+            if str(act.get("op")) == "run":
+                name = Path(str(act.get("script", ""))).name or "未选脚本"
+                out.append("%s %s" % (op, name))
+            else:
+                out.append(op)
+        return "、".join(out) if out else "无"
 
-    def _sup_sync_scheme(self, silent=False):
+    def _refresh_background_rules(self):
+        if not hasattr(self, "rules_scroll"):
+            return
+        for child in list(self.rules_scroll.winfo_children()):
+            child.destroy()
+        self._rule_status_labels = {}
+        rules = self._background_rules()
+        if not rules:
+            ctk.CTkLabel(self.rules_scroll,
+                         text="还没有后台规则\n点「新建规则」或「从当前方案新建」",
+                         font=(theme.FONT, theme.fs(10)), text_color=theme.MUTED,
+                         justify="left").pack(anchor="w", padx=10, pady=10)
+            return
+        for rule in rules:
+            rid = str(rule.get("id", ""))
+            row = ctk.CTkFrame(self.rules_scroll, fg_color=theme.CARD, corner_radius=8)
+            row.pack(fill="x", padx=4, pady=3)
+            var = tk.BooleanVar(value=bool(rule.get("enabled", True)))
+            ctk.CTkSwitch(row, text="", width=42, variable=var,
+                          progress_color=theme.ACCENT,
+                          command=lambda r=rid, v=var: self._toggle_background_rule(r, bool(v.get()))
+                          ).pack(side="left", padx=(8, 4))
+            info = ctk.CTkFrame(row, fg_color="transparent")
+            info.pack(side="left", fill="x", expand=True, pady=4)
+            label(info, "%s  ·  优先级 %s" % (rule.get("name", "规则"), rule.get("priority", 50)),
+                  10, theme.TEXT, anchor="w").pack(anchor="w")
+            label(info, "命中：%s    消失：%s" % (
+                self._rule_action_text(rule.get("on_hit")),
+                self._rule_action_text(rule.get("on_miss"))),
+                  9, theme.MUTED, anchor="w").pack(anchor="w")
+            st = label(info, "状态：等待检测", 9, theme.MUTED, anchor="w")
+            st.pack(anchor="w")
+            self._rule_status_labels[rid] = st
+            ctk.CTkButton(row, text="编辑", width=56, height=26, fg_color=theme.CARD2,
+                          hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
+                          command=lambda r=rid: self._edit_background_rule(r)).pack(side="right", padx=3)
+            ctk.CTkButton(row, text="删除", width=56, height=26, fg_color=theme.DANGER,
+                          text_color="white", font=(theme.FONT, theme.fs(9)),
+                          command=lambda r=rid: self._delete_background_rule(r)).pack(side="right")
+
+    def _new_background_rule(self):
+        from .rule_dialog import RuleDialog
+        def save(rule):
+            rules = self._background_rules() + [rule]
+            self._save_background_rules(rules)
+            self._toast("已新增后台规则：%s" % rule.get("name"), "ok")
+        RuleDialog(self, None, on_save=save)
+
+    def _rule_from_profile(self):
         p = self.monitor_profile
         region = list(p.region or [0, 0, 0, 0])
-        if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
-            if not silent:
-                self._toast("当前方案还没有框选监控区域", "warn")
+        if len(region) != 4 or region[2] <= 0 or region[3] <= 0 or not p.template:
+            self._toast("当前方案还没有区域或图标模板，请先框选并抓取图标", "warn")
             return
-        patch = {
+        rule = {
+            "id": "rule_%d" % int(time.time() * 1000),
+            "name": "规则%d" % (len(self._background_rules()) + 1),
+            "enabled": True,
+            "priority": 50,
+            "template": p.template,
+            "threshold": float(p.threshold),
             "region": region,
             "capture_mode": p.capture_mode,
             "window_title": p.window_title,
             "window_class": p.window_class,
             "window_process": p.window_process,
             "window_hwnd": int(p.window_hwnd or 0),
-            "threshold": float(p.threshold),
             "poll_ms": max(20, int(p.poll_ms)),
+            "stable_frames": 2,
+            "cooldown_ms": 500,
+            "multiscale": True,
+            "on_hit": [],
+            "on_miss": [],
         }
-        if p.template:
-            patch["template"] = p.template
-        for k, v in patch.items():
-            self.cfg.set("script_supervisor." + k, v)
-        self.cfg.save()
-        self._refresh_supervisor_menus()
-        if not silent:
-            self._toast("已同步当前方案：区域、抓屏方式与图案", "ok")
+        self._save_background_rules(self._background_rules() + [rule])
+        self._toast("已按当前方案新建规则，点「编辑」配置动作", "ok")
 
-    def _sup_status_tick(self):
+    def _edit_background_rule(self, rid: str):
+        from .rule_dialog import RuleDialog
+        rules = self._background_rules()
+        cur = next((r for r in rules if str(r.get("id")) == rid), None)
+        if cur is None:
+            return
+        def save(rule):
+            for i, r in enumerate(rules):
+                if str(r.get("id")) == rid:
+                    rules[i] = rule
+                    break
+            self._save_background_rules(rules)
+            self._toast("规则已保存：%s" % rule.get("name"), "ok")
+        RuleDialog(self, cur, on_save=save)
+
+    def _toggle_background_rule(self, rid: str, enabled: bool):
+        rules = self._background_rules()
+        for r in rules:
+            if str(r.get("id")) == rid:
+                r["enabled"] = bool(enabled)
+                break
+        self._save_background_rules(rules)
+
+    def _delete_background_rule(self, rid: str):
+        rules = self._background_rules()
+        cur = next((r for r in rules if str(r.get("id")) == rid), None)
+        if cur and messagebox.askyesno("删除规则", "确定删除「%s」？" % cur.get("name", "规则")):
+            self._save_background_rules([r for r in rules if str(r.get("id")) != rid])
+
+    def _clear_background_rules(self):
+        if not self._background_rules():
+            return
+        if messagebox.askyesno("清空规则", "确定删除全部后台规则？"):
+            self._save_background_rules([])
+
+    def _rules_status_tick(self):
         try:
-            sup = getattr(self, "supervisor", None)
-            if sup is not None:
-                st = sup.status()
-                if not st.get("enabled"):
+            engine = getattr(self, "rules_engine", None)
+            rules = self._background_rules()
+            if engine is None:
+                text, color = "状态：引擎未启动", theme.WARN
+            else:
+                statuses = {s.get("id"): s for s in engine.status()}
+                enabled = sum(1 for r in rules if r.get("enabled", True))
+                present = sum(1 for s in statuses.values() if s.get("present"))
+                errors = [s for s in statuses.values() if s.get("error")]
+                if not enabled:
                     text, color = "状态：未启用", theme.MUTED
-                elif st.get("error"):
-                    text, color = "状态：%s" % str(st["error"])[:36], theme.WARN
-                elif st.get("present"):
-                    text, color = "状态：已出现 · %.2f" % float(st.get("score", 0)), theme.OK
+                elif errors:
+                    text, color = "状态：%d 条启用 · %d 条异常" % (enabled, len(errors)), theme.WARN
                 else:
-                    text, color = "状态：监控中 · %.2f" % float(st.get("score", 0)), theme.ACCENT
-                self.sup_status.configure(text=text, text_color=color)
+                    text, color = "状态：%d 条启用 · %d 个图案存在" % (enabled, present), theme.ACCENT
+                for rid, lab in list(getattr(self, "_rule_status_labels", {}).items()):
+                    st = statuses.get(rid)
+                    if not st:
+                        lab.configure(text="状态：等待检测", text_color=theme.MUTED)
+                    elif st.get("error"):
+                        lab.configure(text="状态：%s" % str(st["error"])[:48], text_color=theme.WARN)
+                    elif st.get("present"):
+                        lab.configure(text="状态：已出现 · %.2f" % float(st.get("score", 0)),
+                                      text_color=theme.OK)
+                    else:
+                        lab.configure(text="状态：监控中 · %.2f" % float(st.get("score", 0)),
+                                      text_color=theme.MUTED)
+            self.rules_status.configure(text=text, text_color=color)
         except Exception:
             pass
-        self.after(1000, self._sup_status_tick)
+        self.after(1000, self._rules_status_tick)
 
     # ------------------------------------------------------------ 区域/图标
     def _capture_mode(self) -> str:
@@ -1088,7 +1097,7 @@ class MonitorPageMixin:
                 self.icon_selected_label.configure(text="当前模板：%s" % path.name)
         for c in range(3):
             self.icons_scroll.grid_columnconfigure(c, weight=1)
-        self._refresh_supervisor_menus()
+
 
     def _select_icon(self, path: Path):
         self._selected_icon = str(path)
@@ -1138,7 +1147,7 @@ class MonitorPageMixin:
         if self.monitor_profile.script_anchor:
             self.anchor_x_var.set(str(self.monitor_profile.script_anchor[0]))
             self.anchor_y_var.set(str(self.monitor_profile.script_anchor[1]))
-        self._refresh_supervisor_menus()
+
 
     def _on_threshold(self):
         v = float(self.threshold_var.get())
