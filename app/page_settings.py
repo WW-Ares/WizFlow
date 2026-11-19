@@ -20,25 +20,31 @@ class SettingsPageMixin:
         outer, page = self._new_page()
         self.pages["settings"] = outer
         page.grid_columnconfigure(0, weight=1)
-        page.grid_columnconfigure(1, weight=1)
 
-        hk = Card(page, "全局热键", "点输入框后直接按键")
-        hk.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=(0, 8))
+        top = Card(page, "全局热键 / 界面", "常用设置合并")
+        top.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        inner = ctk.CTkFrame(top.body, fg_color="transparent")
+        inner.pack(fill="x")
+        inner.grid_columnconfigure(0, weight=1, uniform="set")
+        inner.grid_columnconfigure(1, weight=1, uniform="set")
+
+        left = ctk.CTkFrame(inner, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 18))
         self.hk_vars = {}
         for key, text in (("start_pause", "启动 / 暂停"), ("stop", "停止"), ("record", "录制")):
-            row = ctk.CTkFrame(hk.body, fg_color="transparent")
+            row = ctk.CTkFrame(left, fg_color="transparent")
             row.pack(fill="x", pady=3)
             label(row, text, 11, theme.TEXT, width=100, anchor="w").pack(side="left")
             var = tk.StringVar(value=str(self.cfg.get("hotkeys.%s" % key, "F6")))
             self.hk_vars[key] = var
             KeyCaptureEntry(row, var, width=120).pack(side="left", padx=8)
-        self._btn(hk.body, "应用热键", self._apply_hotkeys, width=96, color=theme.ACCENT,
+        self._btn(left, "应用热键", self._apply_hotkeys, width=96, color=theme.ACCENT,
                   text_color="#04121f").pack(anchor="w", pady=(10, 0))
-        label(hk.body, "热键被占用时会提示；修改后需点应用。", 9).pack(anchor="w", pady=(6, 0))
+        label(left, "热键被占用时会提示；修改后需点应用。", 9).pack(anchor="w", pady=(6, 0))
 
-        ui = Card(page, "界面", "字体与控件缩放")
-        ui.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=(0, 8))
-        row = ctk.CTkFrame(ui.body, fg_color="transparent")
+        right = ctk.CTkFrame(inner, fg_color="transparent")
+        right.grid(row=0, column=1, sticky="nsew", padx=(18, 0))
+        row = ctk.CTkFrame(right, fg_color="transparent")
         row.pack(fill="x", pady=2)
         label(row, "界面缩放", 11, theme.TEXT).pack(side="left")
         cur = float(self.cfg.get("ui_scale", 1.15) or 1.15)
@@ -52,10 +58,18 @@ class SettingsPageMixin:
         ctk.CTkButton(row, text="保存并重启", width=104, height=28,
                       fg_color=theme.ACCENT, text_color="#04121f",
                       command=self._restart_app).pack(side="left", padx=6)
-        label(row, "字体、按钮和输入框同步缩放；重启后生效。", 9).pack(side="left", padx=8)
+        label(right, "字体、按钮和输入框同步缩放；重启后生效。", 9).pack(anchor="w", pady=(12, 4))
+        label(right, "所有页面统一宽度，不再出现右侧空白。", 9).pack(anchor="w")
+        label(right, "页面横竖滚动条按需显示。", 9).pack(anchor="w")
+        label(right, "主窗口固定 1280 宽，保证区域监控完整显示。", 9).pack(anchor="w")
 
-        vp = Card(page, "虚拟屏保活", "Parsec VDD · 真正多一块虚拟显示器")
-        vp.grid(row=1, column=0, columnspan=2, sticky="ew", pady=8)
+        keep = ctk.CTkFrame(page, fg_color="transparent")
+        keep.grid(row=1, column=0, sticky="ew", pady=8)
+        keep.grid_columnconfigure(0, weight=1, uniform="keep")
+        keep.grid_columnconfigure(1, weight=1, uniform="keep")
+
+        vp = Card(keep, "虚拟屏保活", "Parsec VDD · 真正多一块虚拟显示器")
+        vp.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         self.parsec_var = tk.BooleanVar(value=bool(self.cfg.get("vdisplay_parsec", False)))
         ctk.CTkSwitch(vp.body, text="启用虚拟显示器（关闭显示器后监控区域仍然有画面）",
                       variable=self.parsec_var, font=(theme.FONT, theme.fs(11)),
@@ -70,14 +84,16 @@ class SettingsPageMixin:
         self._btn(row, "卸载驱动", self._uninstall_driver, width=84).pack(side="left", padx=6)
         self._btn(row, "刷新状态", self._refresh_parsec_status, width=84).pack(side="left")
         self._btn(row, "立即关闭", self._force_parsec_off, width=84).pack(side="left", padx=6)
-        label(vp.body, "驱动随软件打包（MIT，已签名），首次启用会弹一次 UAC 管理员授权。", 9).pack(anchor="w", pady=(6, 0))
-        label(vp.body, "原理：创建一块 Parsec 虚拟显示器并以 50ms 心跳保活，不依赖 UU / 不依赖第三方软件。", 9).pack(anchor="w")
+        label(vp.body, "驱动随软件打包（MIT，已签名），首次启用会弹一次 UAC 管理员授权。", 9).pack(
+            anchor="w", pady=(8, 0))
+        label(vp.body, "原理：创建一块 Parsec 虚拟显示器并以 50ms 心跳保活。", 9).pack(anchor="w")
 
-        vd = Card(page, "会话保活", "内置兜底 · 无需驱动")
-        vd.grid(row=2, column=0, columnspan=2, sticky="ew", pady=8)
+        vd = Card(keep, "会话保活", "内置兜底 · 无需驱动")
+        vd.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
         self.vd_var = tk.BooleanVar(value=bool(self.cfg.get("vdisplay", False)))
         ctk.CTkSwitch(vd.body, text="阻止睡眠 / 熄屏 / 屏保，空闲时微动鼠标",
-                      variable=self.vd_var, font=(theme.FONT, theme.fs(11)), progress_color=theme.ACCENT,
+                      variable=self.vd_var, font=(theme.FONT, theme.fs(11)),
+                      progress_color=theme.ACCENT,
                       command=self._toggle_vdisplay).pack(anchor="w")
         self.vd_status = label(vd.body, "状态：未启用", 10, theme.TEXT)
         self.vd_status.pack(anchor="w", pady=(8, 4))
@@ -85,22 +101,32 @@ class SettingsPageMixin:
         row.pack(fill="x", pady=(4, 0))
         self._btn(row, "刷新状态", self._refresh_vd_status, width=84).pack(side="left")
         self._btn(row, "立即关闭", self._force_vd_off, width=84).pack(side="left", padx=6)
-        label(row, "纯 Windows API：SetThreadExecutionState + 空闲输入微动。", 9).pack(side="left", padx=8)
+        label(vd.body, "纯 Windows API：SetThreadExecutionState + 空闲输入微动。", 9).pack(
+            anchor="w", pady=(8, 0))
+        label(vd.body, "组策略强制锁屏时无法绕过。", 9).pack(anchor="w")
 
         about = Card(page, "路径与工具")
-        about.grid(row=3, column=0, columnspan=2, sticky="ew", pady=8)
-        info = ctk.CTkTextbox(about.body, height=150, fg_color=theme.BG2, font=(theme.MONO, theme.fs(9)),
-                              text_color=theme.MUTED)
-        info.pack(fill="x")
-        info.insert("end", "程序目录：%s\n脚本目录：%s\n图标目录：%s\n日志目录：%s\n配置：%s\n"
-                    % (ROOT, SCRIPTS_DIR, ICONS_DIR, LOGS_DIR, CONFIG_FILE))
-        info.configure(state="disabled")
-        row = ctk.CTkFrame(about.body, fg_color="transparent")
-        row.pack(fill="x", pady=(8, 0))
-        self._btn(row, "打开程序目录", lambda: os.startfile(str(ROOT)), width=110).pack(side="left")
-        self._btn(row, "打开脚本目录", self._open_scripts_dir, width=110).pack(side="left", padx=6)
-        self._btn(row, "打开日志目录", lambda: os.startfile(str(LOGS_DIR)), width=110).pack(side="left")
-        self._btn(row, "打开配置", lambda: os.startfile(str(CONFIG_FILE)), width=110).pack(side="left", padx=6)
+        about.grid(row=2, column=0, sticky="ew", pady=8)
+        body = ctk.CTkFrame(about.body, fg_color="transparent")
+        body.pack(fill="x")
+        texts = ctk.CTkFrame(body, fg_color=theme.BG2, corner_radius=8)
+        texts.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=6)
+        label(texts, "程序目录：%s" % ROOT, 9, theme.MUTED, anchor="w",
+              justify="left", wraplength=540).pack(anchor="w", padx=8, pady=(6, 0))
+        label(texts, "脚本：scripts/    图标：icons/", 9, theme.MUTED, anchor="w").pack(
+            anchor="w", padx=8, pady=(2, 0))
+        label(texts, "日志：logs/        配置：config.json", 9, theme.MUTED, anchor="w").pack(
+            anchor="w", padx=8, pady=(2, 6))
+        btns = ctk.CTkFrame(body, fg_color="transparent")
+        btns.pack(side="right", padx=(10, 0))
+        self._btn(btns, "打开程序目录", lambda: os.startfile(str(ROOT)), width=98).grid(
+            row=0, column=0, padx=2, pady=2)
+        self._btn(btns, "打开脚本目录", self._open_scripts_dir, width=98).grid(
+            row=0, column=1, padx=2, pady=2)
+        self._btn(btns, "打开日志目录", lambda: os.startfile(str(LOGS_DIR)), width=98).grid(
+            row=1, column=0, padx=2, pady=2)
+        self._btn(btns, "打开配置", lambda: os.startfile(str(CONFIG_FILE)), width=98).grid(
+            row=1, column=1, padx=2, pady=2)
 
     def _on_scale_change(self, value):
         mapping = {"100%": 1.0, "115%": 1.15, "130%": 1.30, "150%": 1.50}

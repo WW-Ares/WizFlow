@@ -244,8 +244,8 @@ class ScrollPage(ctk.CTkFrame):
             bbox = self.canvas.bbox("all") or (0, 0, 0, 0)
             cw = max(1, self.canvas.winfo_width())
             ch = max(1, self.canvas.winfo_height())
-            need_h = (bbox[2] - bbox[0]) > cw + 1
-            need_v = (bbox[3] - bbox[1]) > ch + 1
+            need_h = (bbox[2] - bbox[0]) > cw + 8
+            need_v = (bbox[3] - bbox[1]) > ch + 8
             if need_h:
                 self.hbar.grid()
             else:

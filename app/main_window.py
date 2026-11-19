@@ -45,6 +45,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
         self._set_window_icon()
         self.geometry("1280x860")
         self.minsize(1280, 760)
+        self.resizable(False, True)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.cfg = Config()
@@ -176,18 +177,20 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
 
         ctk.CTkFrame(side, height=1, fg_color=theme.LINE).pack(fill="x", padx=16, pady=16)
 
-        info = ctk.CTkFrame(side, fg_color=theme.CARD, corner_radius=10)
-        info.pack(fill="x", padx=8)
-        ctk.CTkLabel(info, text="运行环境", font=(theme.FONT, theme.fs(10), "bold"),
-                     text_color=theme.MUTED).pack(anchor="w", padx=10, pady=(10, 2))
-        admin = is_admin()
-        Pill(info, "管理员" if admin else "普通权限",
-             theme.OK if admin else theme.WARN).pack(anchor="w", padx=10, pady=(0, 6))
-        ctk.CTkLabel(info, text="游戏以管理员运行时\n本工具也需管理员", font=(theme.FONT, theme.fs(9)),
-                     text_color=theme.MUTED, justify="left").pack(anchor="w", padx=10, pady=(0, 10))
-
         ctk.CTkLabel(side, text="v%s" % APP_VERSION, font=(theme.MONO, theme.fs(9)),
-                     text_color=theme.LINE).pack(side="bottom", pady=12)
+                     text_color=theme.MUTED).pack(side="bottom", pady=(0, 10))
+
+        info = ctk.CTkFrame(side, fg_color=theme.CARD, corner_radius=10)
+        info.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
+        ctk.CTkLabel(info, text="运行环境", font=(theme.FONT, theme.fs(9), "bold"),
+                     text_color=theme.MUTED).pack(anchor="center", pady=(8, 2))
+        admin = is_admin()
+        pill = Pill(info, "管理员" if admin else "普通权限",
+                    theme.OK if admin else theme.WARN)
+        pill.pack(anchor="center", pady=(0, 4))
+        ctk.CTkLabel(info, text="游戏以管理员运行时\n本工具也需要管理员",
+                     font=(theme.FONT, theme.fs(8)), text_color=theme.MUTED,
+                     justify="center").pack(anchor="center", padx=4, pady=(0, 8))
 
     def _build_content(self):
         self.content = ctk.CTkFrame(self, fg_color="transparent")
@@ -214,7 +217,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
                                          text_color=theme.MUTED, anchor="w")
         self.status_label.pack(side="left", padx=16)
         self.count_label = ctk.CTkLabel(bar, text="事件 0", font=(theme.MONO, theme.fs(10)),
-                                        text_color=theme.LINE)
+                                        text_color=theme.MUTED)
         self.count_label.pack(side="right", padx=16)
 
     # ================================================================ 工具
