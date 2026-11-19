@@ -30,6 +30,7 @@ class RuleState:
     last_res: object = None
     cost_ms: float = 0.0
     next_due: float = 0.0
+    count: int = 0
 
 
 class BackgroundRuleEngine(threading.Thread):
@@ -45,6 +46,9 @@ class BackgroundRuleEngine(threading.Thread):
         self._source_key = None
         self._group_had_any = False
         self._group_none_since = 0.0
+        self._link_best = {}
+        self._link_fired = {}
+        self._link_step = {}
         self.enabled = False
         self.grab_ms = 0.0
 
@@ -159,40 +163,91 @@ class BackgroundRuleEngine(threading.Thread):
                     st.miss_streak += 1
                     st.hit_streak = 0
 
-            # 互斥组：找到每个成员的最高优先级
-            best_by_link = {}
-            for link in group.get("links", []):
-                if str(link.get("type")) != "exclusive":
-                    continue
-                hits = []
+            links = [l for l in (group.get("links") or []) if isinstance(l, dict)]
+            member_link = {}
+            for link in links:
                 for rid in link.get("members", []):
-                    item = results.get(rid)
-                    if item and item[2]:
-                        hits.append((int(item[0].get("priority", 50)), rid))
-                if hits:
-                    best_by_link[link.get("id")] = max(hits)[1]
-            rule_link = {r.get("id"): r.get("group") for r in rules}
+                    member_link[str(rid)] = link
 
             fire_on = []
             fire_off = []
             for rid, (rule, st, hit, res, evaluated) in results.items():
+                if not evaluated:
+                    continue
                 stable = max(1, int(rule.get("stable_frames", 1)))
                 if not st.present and st.hit_streak >= stable:
                     st.present = True
-                    fire_on.append((rule, st, res))
+                    if rid not in member_link:
+                        fire_on.append((rule, st))
                 elif st.present and st.miss_streak >= stable:
                     st.present = False
                     fire_off.append((rule, st))
 
-            for rule, st, res in fire_on:
-                link_id = rule_link.get(rule.get("id"))
-                if link_id and best_by_link.get(link_id) not in (None, rule.get("id")):
-                    continue
+            def can_fire(rule, st):
                 cooldown = max(0, int(rule.get("cooldown_ms", 0))) / 1000.0
                 if now - st.last_fire < cooldown:
-                    continue
+                    return False
+                maxt = max(0, int(rule.get("max_triggers", 0) or 0))
+                if maxt and st.count >= maxt:
+                    return False
+                return True
+
+            def fire_rule(rule, st):
+                if not can_fire(rule, st):
+                    return
                 st.last_fire = now
+                st.count += 1
                 self._fire(rule, rule.get("actions"), st.center)
+
+            present_priorities = {}
+            for rid, (rule, st, _h, _r, _ev) in results.items():
+                if st.present and bool(rule.get("enabled", True)):
+                    present_priorities[rid] = int(rule.get("priority", 50))
+
+            mode = str(group.get("mode", "parallel"))
+            for rule, st in fire_on:
+                rid = str(rule.get("id", ""))
+                if mode == "mutex":
+                    prio = int(rule.get("priority", 50))
+                    others = [p for k, p in present_priorities.items() if k != rid]
+                    if others and max(others) > prio:
+                        continue
+                fire_rule(rule, st)
+
+            for link in links:
+                lid = str(link.get("id", ""))
+                members = [m for m in link.get("members", []) if m in results]
+                present = [m for m in members if results[m][1].present]
+                typ = str(link.get("type", "exclusive"))
+                if typ == "exclusive":
+                    best = None
+                    if present:
+                        best = max(present, key=lambda m: (int(results[m][0].get("priority", 50)),
+                                                           float(results[m][1].score)))
+                    if best and self._link_best.get(lid) != best:
+                        fire_rule(results[best][0], results[best][1])
+                    self._link_best[lid] = best
+                elif typ == "all":
+                    if members and len(present) == len(members):
+                        if not self._link_fired.get(lid):
+                            for m in members:
+                                fire_rule(results[m][0], results[m][1])
+                            self._link_fired[lid] = True
+                    else:
+                        self._link_fired[lid] = False
+                elif typ == "sequence":
+                    step = int(self._link_step.get(lid, 0) or 0)
+                    if not present:
+                        step = 0
+                    elif step < len(members):
+                        m = members[step]
+                        if results[m][1].present:
+                            fire_rule(results[m][0], results[m][1])
+                            step += 1
+                    if step >= len(members):
+                        step = 0
+                    self._link_step[lid] = step
+
             for rule, st in fire_off:
                 cooldown = max(0, int(rule.get("cooldown_ms", 0))) / 1000.0
                 if now - st.last_fire < cooldown:
@@ -227,5 +282,6 @@ class BackgroundRuleEngine(threading.Thread):
         out = []
         for rid, st in list(self._states.items()):
             out.append({"id": rid, "present": st.present, "score": st.score,
-                        "error": st.error, "cost_ms": st.cost_ms})
+                        "error": st.error, "cost_ms": st.cost_ms,
+                        "count": st.count})
         return out

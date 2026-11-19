@@ -11,7 +11,7 @@ from pathlib import Path
 
 APP_NAME = "WizFlow"
 APP_ID = "WizFlow.Desktop"
-APP_VERSION = "1.8.1"
+APP_VERSION = "1.8.2"
 
 
 def app_dir() -> Path:
@@ -272,6 +272,50 @@ def _migrate_monitor_v2(data: dict) -> None:
         "links": links,
     })
     data["multi_monitor"] = group
+
+    for scheme in data.get("monitor_schemes") or []:
+        if not isinstance(scheme, dict) or scheme.get("_v2"):
+            continue
+        sp = scheme.get("profile") or {}
+        sg = scheme.get("group") or {}
+        srules = [r for r in (sg.get("rules") or []) if isinstance(r, dict)]
+        if not srules and sp.get("template"):
+            srules = [{
+                "id": "rule_profile",
+                "name": sp.get("name") or "主规则",
+                "enabled": True,
+                "resident": False,
+                "priority": 50,
+                "template": sp.get("template", ""),
+                "template_rect": [],
+                "roi": [],
+                "threshold": float(sp.get("threshold", 0.85) or 0.85),
+                "multiscale": bool(sp.get("multiscale", True)),
+                "cooldown_ms": 500,
+                "stable_frames": 1,
+                "require_absence": True,
+                "max_triggers": 0,
+                "group": "",
+                "poll_ms": 0,
+                "actions": _profile_actions(sp),
+                "miss_actions": [],
+            }]
+        sregion = list(sg.get("region") or [0, 0, 0, 0])
+        if len(sregion) != 4 or sregion[2] <= 0 or sregion[3] <= 0:
+            sregion = list(sp.get("region") or [0, 0, 0, 0])
+        sg.update({
+            "region": sregion,
+            "capture_mode": sg.get("capture_mode") or sp.get("capture_mode", "screen"),
+            "window_title": sg.get("window_title") or sp.get("window_title", ""),
+            "window_class": sg.get("window_class") or sp.get("window_class", ""),
+            "window_process": sg.get("window_process") or sp.get("window_process", ""),
+            "window_hwnd": int(sg.get("window_hwnd") or sp.get("window_hwnd", 0) or 0),
+            "poll_ms": int(sg.get("poll_ms") or sp.get("poll_ms", 150) or 150),
+            "rules": srules,
+            "links": [l for l in (sg.get("links") or []) if isinstance(l, dict)],
+        })
+        scheme["group"] = sg
+        scheme["_v2"] = True
 
 
 def _deep_merge(base: dict, patch: dict) -> dict:

@@ -924,6 +924,9 @@ class RulesWindow(ctk.CTkToplevel):
         ctk.CTkSwitch(grid, text="命中一次后停止", variable=self.stop_var,
                       font=(theme.FONT, theme.fs(10)), progress_color=theme.ACCENT).grid(
             row=1, column=9, padx=(10, 0))
+        label(grid, "组宽限ms", 10, theme.MUTED).grid(row=1, column=10, sticky="w", padx=(10, 0))
+        self.grace_var = tk.StringVar(value=str(self.group.get("grace_ms", 600)))
+        entry(grid, width=70, textvariable=self.grace_var).grid(row=1, column=11, padx=6)
 
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=16, pady=6)
@@ -992,6 +995,7 @@ class RulesWindow(ctk.CTkToplevel):
         g["run_mode"] = RUN_DISP.get(self.run_var.get(), "continuous")
         g["timeout_ms"] = max(0, int(float(self.timeout_var.get() or 0)))
         g["stop_on_match"] = bool(self.stop_var.get())
+        g["grace_ms"] = max(0, int(float(self.grace_var.get() or 600)))
         g["rules"] = self.group["rules"]
         g["links"] = self.group["links"]
         return normalize_monitor_group(g)
