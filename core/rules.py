@@ -148,7 +148,7 @@ class BackgroundRuleEngine(threading.Thread):
                     results[rid] = (rule, st, st.last_hit, st.last_res, False)
                     continue
                 try:
-                    if not rule.get("template"):
+                    if not rule.get("templates") and not rule.get("template"):
                         raise ValueError("未选择图标模板")
                     t_match = time.perf_counter()
                     res = match_rule(self.matcher, frame, region, rule, origin)

@@ -14,6 +14,7 @@ DEFAULTS_RULE = {
     "name": "规则",
     "enabled": True,
     "template": "",
+    "templates": [],
     "template_rect": [],
     "roi": [],
     "threshold": 0.85,
@@ -73,7 +74,19 @@ def normalize_rule(d: dict, idx: int = 0) -> dict:
     out.update(d)
     out["id"] = str(d.get("id") or ("r%d" % (idx + 1)))
     out["name"] = str(d.get("name", "规则%d" % (idx + 1)))
-    out["template"] = str(d.get("template", "") or "")
+    tpls = d.get("templates")
+    if isinstance(tpls, list):
+        seen = set()
+        out["templates"] = []
+        for x in tpls:
+            t = str(x)
+            if t and t not in seen:
+                seen.add(t)
+                out["templates"].append(t)
+    else:
+        t = str(d.get("template", "") or "")
+        out["templates"] = [t] if t else []
+    out["template"] = out["templates"][0] if out["templates"] else str(d.get("template", "") or "")
     out["template_rect"] = [_i(v) for v in (d.get("template_rect") or [])][:4]
     out["roi"] = [_i(v) for v in (d.get("roi") or [])][:4]
     out["threshold"] = max(0.1, min(0.999, _f(d.get("threshold", 0.85), 0.85)))
@@ -187,7 +200,10 @@ def _abs_roi(region, roi):
 
 def match_rule(matcher: TemplateMatcher, frame, region, rule, origin=(0, 0)) -> MatchResult:
     ox, oy = int(origin[0]), int(origin[1])
-    if not rule.get("template"):
+    tpls = rule.get("templates") or []
+    if not tpls and rule.get("template"):
+        tpls = [rule["template"]]
+    if not tpls:
         return MatchResult()
     x, y, w, h = [int(v) for v in region]
     roi = rule.get("roi") or []
@@ -197,14 +213,18 @@ def match_rule(matcher: TemplateMatcher, frame, region, rule, origin=(0, 0)) -> 
         rw = min(int(roi[2]), max(1, frame.shape[1] - rx))
         rh = min(int(roi[3]), max(1, frame.shape[0] - ry))
         sub = frame[ry:ry + rh, rx:rx + rw]
-        res = matcher.find(sub, rule["template"], rule["threshold"], rule["multiscale"])
-        res.x += x + rx + ox
-        res.y += y + ry + oy
-        return res
-    res = matcher.find(frame, rule["template"], rule["threshold"], rule["multiscale"])
-    res.x += x + ox
-    res.y += y + oy
-    return res
+        base_x, base_y = x + rx + ox, y + ry + oy
+    else:
+        sub = frame
+        base_x, base_y = x + ox, y + oy
+    best = MatchResult()
+    for tpl in tpls:
+        res = matcher.find(sub, tpl, rule["threshold"], rule["multiscale"])
+        if res.score > best.score:
+            best = res
+    best.x += base_x
+    best.y += base_y
+    return best
 
 
 @dataclass

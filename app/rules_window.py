@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import tkinter as tk
 from pathlib import Path
+from tkinter import messagebox
 
 import customtkinter as ctk
 from PIL import Image
@@ -388,7 +389,10 @@ class RuleDialog(ctk.CTkToplevel):
         self.links = links or []
         self.region_shot = region_shot
         self.region = region or [0, 0, 0, 0]
-        self.template = self.rule.get("template", "")
+        self.templates = [str(x) for x in (self.rule.get("templates") or []) if str(x)]
+        if not self.templates and self.rule.get("template"):
+            self.templates = [str(self.rule["template"])]
+        self.template = self.templates[0] if self.templates else ""
         self.template_rect = list(self.rule.get("template_rect") or [])
         self.actions = list(self.rule.get("actions") or [])
         self.miss_actions = list(self.rule.get("miss_actions") or [])
@@ -518,21 +522,24 @@ class RuleDialog(ctk.CTkToplevel):
         self._refresh_roi_label()
 
         icon_row = ctk.CTkFrame(top, fg_color="transparent")
-        icon_row.pack(fill="x", padx=14, pady=(0, 10))
+        icon_row.pack(fill="x", padx=14, pady=(0, 6))
         self.icon_preview = ctk.CTkLabel(icon_row, text="未选择图标", fg_color=theme.BG2,
                                          corner_radius=8, width=96, height=64)
         self.icon_preview.pack(side="left")
-        ctk.CTkButton(icon_row, text="从监控区域截图圈选图标", width=180, height=34,
+        ctk.CTkButton(icon_row, text="添加模板（截图）", width=150, height=34,
                       fg_color=theme.OK, text_color="#04121f",
                       font=(theme.FONT, theme.fs(10)),
                       command=self._crop_icon).pack(side="left", padx=(10, 4))
-        ctk.CTkButton(icon_row, text="从图标库选择", width=110, height=34,
+        ctk.CTkButton(icon_row, text="从图标库添加", width=120, height=34,
                       fg_color=theme.PURPLE, text_color="white",
                       font=(theme.FONT, theme.fs(10)),
                       command=self._pick_from_library).pack(side="left", padx=4)
-        self.tpl_label = label(icon_row, self.template or "未选择", 9, theme.MUTED)
+        self.tpl_label = label(icon_row, "", 9, theme.MUTED)
         self.tpl_label.pack(side="left", padx=6)
-        self._refresh_icon_preview()
+        self.tpl_box = ctk.CTkScrollableFrame(top, fg_color=theme.BG2, corner_radius=8,
+                                              height=78)
+        self.tpl_box.pack(fill="x", padx=14, pady=(0, 10))
+        self._refresh_templates()
 
         act_card = Card(self.scroll, "动作列表", "按顺序执行")
         act_card.pack(fill="x", padx=16, pady=(0, 8))
@@ -623,23 +630,64 @@ class RuleDialog(ctk.CTkToplevel):
         IconPickerDialog(self, on_pick=self._on_library_pick)
 
     def _on_library_pick(self, path):
-        self.template = "icons/" + Path(path).name
+        self._add_template("icons/" + Path(path).name)
         self.template_rect = []
-        self.tpl_label.configure(text=self.template)
         self._refresh_icon_preview()
+        self._refresh_templates()
 
     def _crop_icon(self):
         if self.region_shot is None:
             return
-        default = Path(self.template).name if self.template else ("icon_" + self.rule.get("id", "1"))
+        default = "icon_%s_%d" % (self.rule.get("id", "1"), len(self.templates) + 1)
         IconCropDialog(self, self.region_shot, self.region, default,
                        default_crop=self.template_rect or None, on_save=self._on_crop)
 
     def _on_crop(self, path, rect):
-        self.template = "icons/" + Path(path).name
+        self._add_template("icons/" + Path(path).name)
         self.template_rect = list(rect)
-        self.tpl_label.configure(text=self.template)
         self._refresh_icon_preview()
+        self._refresh_templates()
+
+    def _add_template(self, path: str):
+        path = str(path or "")
+        if not path:
+            return
+        if path not in self.templates:
+            self.templates.append(path)
+        self.template = self.templates[0] if self.templates else ""
+
+    def _remove_template(self, idx: int):
+        if 0 <= idx < len(self.templates):
+            self.templates.pop(idx)
+        self.template = self.templates[0] if self.templates else ""
+        self._refresh_icon_preview()
+        self._refresh_templates()
+
+    def _refresh_templates(self):
+        try:
+            for w in list(self.tpl_box.winfo_children()):
+                w.destroy()
+        except Exception:
+            return
+        if not self.templates:
+            label(self.tpl_box, "未选择模板；可添加 1 个或多个，任意命中即算命中",
+                  9, theme.MUTED).pack(anchor="w", padx=8, pady=8)
+        else:
+            for i, t in enumerate(self.templates):
+                row = ctk.CTkFrame(self.tpl_box, fg_color="transparent")
+                row.pack(fill="x", pady=1)
+                label(row, "%d. %s" % (i + 1, Path(t).name), 9, theme.TEXT,
+                      anchor="w").pack(side="left", fill="x", expand=True, padx=6)
+                ctk.CTkButton(row, text="删除", width=44, height=22,
+                              fg_color=theme.DANGER, text_color="white",
+                              font=(theme.FONT, theme.fs(9)),
+                              command=lambda idx=i: self._remove_template(idx)).pack(
+                    side="right", padx=4)
+        try:
+            self.tpl_label.configure(
+                text=("已选 %d 个模板" % len(self.templates)) if self.templates else "未选择")
+        except Exception:
+            pass
 
     def _refresh_icon_preview(self):
         img = load_image(self.template) if self.template else None
@@ -786,7 +834,39 @@ class RuleDialog(ctk.CTkToplevel):
             self.miss_actions.pop(idx)
             self._refresh_miss_actions()
 
+    def _validate(self):
+        issues = []
+        if not self.templates:
+            issues.append("没有选择图标模板")
+        for t in self.templates:
+            img = load_image(t)
+            if img is None:
+                issues.append("模板不存在：%s" % t)
+                continue
+            h, w = img.shape[:2]
+            if w < 8 or h < 8:
+                issues.append("模板过小：%s（%dx%d）" % (Path(t).name, w, h))
+        try:
+            if float(self.threshold_var.get()) < 0.6:
+                issues.append("阈值低于 0.60，可能误判")
+        except Exception:
+            pass
+        roi = self.roi
+        if len(roi) == 4 and roi[2] > 0 and (roi[0] < 0 or roi[1] < 0):
+            issues.append("二级范围坐标不能为负")
+        for title, acts in (("命中动作", self.actions), ("消失动作", self.miss_actions)):
+            for a in acts:
+                if (str(a.get("type")) == "script" and str(a.get("op", "run")) == "run"
+                        and not a.get("path")):
+                    issues.append("%s 中有“运行脚本”未选择脚本" % title)
+        return issues
+
     def _save(self):
+        issues = self._validate()
+        if issues:
+            text = "\n".join(issues[:6])
+            if not messagebox.askyesno("保存前检查", text + "\n\n仍然保存吗？"):
+                return
         r = normalize_rule(self.rule)
         r["name"] = self.name_var.get().strip() or "规则"
         r["priority"] = int(float(self.priority_var.get() or 50))
@@ -798,7 +878,8 @@ class RuleDialog(ctk.CTkToplevel):
         r["fires_per_present"] = max(0, int(float(self.fires_var.get() or 0)))
         r["poll_ms"] = max(0, int(float(self.poll_var.get() or 0)))
         r["enabled"] = bool(self.enabled_var.get())
-        r["template"] = self.template
+        r["templates"] = list(self.templates)
+        r["template"] = self.templates[0] if self.templates else ""
         r["template_rect"] = list(self.template_rect)
         r["roi"] = list(self.roi)
         r["actions"] = list(self.actions)
@@ -1042,7 +1123,7 @@ class RulesWindow(ctk.CTkToplevel):
             ctk.CTkCheckBox(row, text="", variable=var, width=24,
                             command=lambda rid=r["id"], v=var: self._toggle_rule(rid, v.get())).pack(
                 side="left", padx=(6, 2))
-            img = load_image(r.get("template")) if r.get("template") else None
+            img = load_image((r.get("templates") or [r.get("template")])[0]) if (r.get("templates") or r.get("template")) else None
             if img is not None:
                 pil = to_ctk_image(img)
                 pil.thumbnail((36, 36), Image.LANCZOS)
@@ -1269,7 +1350,7 @@ class RulesWindow(ctk.CTkToplevel):
         matcher = TemplateMatcher()
         hits = []
         for i, r in enumerate(g["rules"]):
-            if not r.get("enabled", True) or not r.get("template"):
+            if not r.get("enabled", True) or not (r.get("templates") or r.get("template")):
                 continue
             res = match_rule(matcher, frame, region, r)
             if res.score >= r["threshold"]:

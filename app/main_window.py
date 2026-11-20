@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import queue
 import threading
+import time
 import traceback
 import tkinter as tk
 from pathlib import Path
@@ -72,6 +73,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             lambda: self.cfg.data,
             lambda rule_id, act: self.ui_queue.put(("rule_action", rule_id, act)))
         self._last_dpi = None
+        self._script_warn_at = {}
 
         self.script_path = None
         self.events: list[dict] = []
@@ -582,7 +584,12 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
                 return
         if op == "run":
             if not path or not Path(path).exists():
-                self._toast("后台规则：脚本不存在 %s" % (act.get("script") or ""), "warn")
+                key = (rule_id, str(act.get("script") or act.get("path") or ""))
+                now = time.time()
+                if now - self._script_warn_at.get(key, 0.0) > 5.0:
+                    self._script_warn_at[key] = now
+                    self._toast("后台规则：脚本不存在 %s"
+                                % (act.get("script") or ""), "warn")
                 return
             if self.player.running:
                 same = False

@@ -235,7 +235,7 @@ class MonitorPageMixin:
                     (root / "scheme.json").write_text(data, encoding="utf-8")
                     icons = set()
                     for r in (s.get("group", {}) or {}).get("rules", []):
-                        tpl = str(r.get("template", "") or "")
+                        tpl = str((r.get("templates") or [r.get("template", "")])[0] or "")
                         if tpl:
                             icons.add(Path(tpl).name)
                     if icons:
@@ -494,7 +494,7 @@ class MonitorPageMixin:
         if flt:
             rules = [r for r in rules
                      if flt in str(r.get("name", "")).lower()
-                     or flt in str(r.get("template", "")).lower()]
+                     or any(flt in str(t).lower() for t in (r.get("templates") or [r.get("template", "")]))]
         try:
             if self.only_resident_var.get():
                 rules = [r for r in rules if r.get("resident")]
@@ -782,7 +782,7 @@ class MonitorPageMixin:
             from core.monitor_rules import match_rule
             lines = []
             for rule in self._rules():
-                if not rule.get("template"):
+                if not (rule.get("templates") or rule.get("template")):
                     continue
                 res = match_rule(self.matcher, frame, region, rule, origin)
                 lines.append("%s %.2f" % (rule.get("name", "规则"), res.score))
@@ -1087,7 +1087,7 @@ class MonitorPageMixin:
                     continue
                 vis = frame.copy()
                 for rule in self._rules():
-                    if not rule.get("enabled", True) or not rule.get("template"):
+                    if not rule.get("enabled", True) or not (rule.get("templates") or rule.get("template")):
                         continue
                     try:
                         res = match_rule(self.matcher, frame, region, rule, origin)
