@@ -20,7 +20,7 @@ from .icon_crop_dialog import IconCropDialog
 from .point_picker import PointPicker
 from .area_select_dialog import AreaSelectDialog
 from .window_icon import apply_window_icon
-from .widgets import Card, Tooltip, center_window, entry, label
+from .widgets import AutoScrollFrame, Card, Tooltip, center_window, entry, label
 
 ACTION_TYPES = [
     ("click", "单击 / 双击 / 长按"),
@@ -268,7 +268,7 @@ class ActionDialog(ctk.CTkToplevel):
         self._combo("position", "位置", list(POS_DISP.keys()),
                     POS_REV.get(a.get("position", "center"), "图标中心"),
                     command=lambda _v: self._refresh_position_fields())
-        self.pos_box = ctk.CTkFrame(self.form, fg_color="transparent")
+        self.pos_box = ctk.CTkFrame(self.form, fg_color="transparent", height=1)
         self.pos_box.pack(fill="x")
         self._refresh_position_fields()
 
@@ -304,9 +304,9 @@ class ActionDialog(ctk.CTkToplevel):
         label(row, "随机偏移", 10, theme.MUTED, width=100, anchor="w").pack(side="left")
         ctk.CTkSwitch(row, text="", variable=self.random_on_var,
                       progress_color=theme.ACCENT,
-                      command=self._refresh_random_fields).pack(side="left")
-        self.rand_box = ctk.CTkFrame(self.form, fg_color="transparent")
-        self.rand_box.pack(fill="x")
+                      command=self._refresh_random_fields).pack(side="left", padx=(0, 10))
+        self.rand_box = ctk.CTkFrame(row, fg_color="transparent", height=1)
+        self.rand_box.pack(side="left", fill="x", expand=True)
         self._refresh_random_fields()
 
     def _refresh_random_fields(self):
@@ -322,10 +322,14 @@ class ActionDialog(ctk.CTkToplevel):
             on = False
         if not on:
             return
-        self._field("random_x", "随机 X（±）",
-                    self._v("random_x", abs(int(a.get("random_x", 0) or 0))), 80, self.rand_box)
-        self._field("random_y", "随机 Y（±）",
-                    self._v("random_y", abs(int(a.get("random_y", 0) or 0))), 80, self.rand_box)
+        label(self.rand_box, "X ±", 9, theme.MUTED).pack(side="left")
+        vx = tk.StringVar(value=str(self._v("random_x", abs(int(a.get("random_x", 0) or 0)))))
+        self.vars["random_x"] = vx
+        entry(self.rand_box, width=70, textvariable=vx).pack(side="left", padx=(4, 10))
+        label(self.rand_box, "Y ±", 9, theme.MUTED).pack(side="left")
+        vy = tk.StringVar(value=str(self._v("random_y", abs(int(a.get("random_y", 0) or 0)))))
+        self.vars["random_y"] = vy
+        entry(self.rand_box, width=70, textvariable=vy).pack(side="left", padx=4)
 
     def _random_dict(self):
         try:
@@ -673,13 +677,13 @@ class RuleDialog(ctk.CTkToplevel):
                       command=self._pick_from_library).pack(side="left", padx=4)
         self.tpl_label = label(icon_row, "", 9, theme.MUTED)
         self.tpl_label.pack(side="left", padx=6)
-        label(top, "可添加 1–N 个模板，任意一个命中即算命中；建议只裁剪图标核心区域，避免带动画/文字。",
+        label(top, "可添加多个图片模板，任意一个命中即算命中；建议只裁剪图标核心区域。",
               9, theme.MUTED, anchor="w", justify="left", wraplength=820).pack(
             anchor="w", padx=14, pady=(0, 4))
-        self.tpl_box = ctk.CTkScrollableFrame(top, fg_color=theme.BG2, corner_radius=8,
-                                              height=132)
-        self.tpl_box.pack(fill="x", padx=14, pady=(0, 10))
+        self.tpl_box = AutoScrollFrame(top, height=150)
+        self.tpl_box.pack(fill="x", padx=14, pady=(0, 8))
         self._refresh_templates()
+        self._refresh_icon_preview()
 
         acts_row = ctk.CTkFrame(self.scroll, fg_color="transparent")
         acts_row.pack(fill="x", padx=16, pady=(0, 8))
@@ -693,7 +697,7 @@ class RuleDialog(ctk.CTkToplevel):
         ctk.CTkButton(bar, text="添加动作", width=90, height=28, fg_color=theme.ACCENT,
                       text_color="#04121f", font=(theme.FONT, theme.fs(10)),
                       command=self._add_action).pack(side="left")
-        label(bar, "次数", 9).pack(side="left", padx=(8, 2))
+        label(bar, "执行次数", 9).pack(side="left", padx=(8, 2))
         self.fires_var = tk.StringVar(value=str(self.rule.get("fires_per_present", 1)))
         e_fires = entry(bar, width=44, textvariable=self.fires_var)
         e_fires.pack(side="left")
@@ -710,7 +714,7 @@ class RuleDialog(ctk.CTkToplevel):
         ctk.CTkButton(mbar, text="添加消失动作", width=110, height=28, fg_color=theme.PURPLE,
                       text_color="white", font=(theme.FONT, theme.fs(10)),
                       command=self._add_miss_action).pack(side="left")
-        label(mbar, "次数", 9).pack(side="left", padx=(8, 2))
+        label(mbar, "执行次数", 9).pack(side="left", padx=(8, 2))
         self.miss_fires_var = tk.StringVar(value=str(self.rule.get("fires_per_absence", 1)))
         e_mfires = entry(mbar, width=44, textvariable=self.miss_fires_var)
         e_mfires.pack(side="left")
@@ -819,33 +823,33 @@ class RuleDialog(ctk.CTkToplevel):
 
     def _refresh_templates(self):
         try:
-            for w in list(self.tpl_box.winfo_children()):
+            for w in list(self.tpl_box.inner.winfo_children()):
                 w.destroy()
         except Exception:
             return
         if not self.templates:
-            label(self.tpl_box, "未选择模板；可添加 1 个或多个，任意命中即算命中",
-                  9, theme.MUTED).pack(anchor="w", padx=8, pady=8)
+            label(self.tpl_box.inner, "未选择模板；可添加 1 个或多个，任意命中即算命中",
+                  9, theme.MUTED).grid(row=0, column=0, padx=8, pady=8, sticky="w")
         else:
             imgs = []
             for i, t in enumerate(self.templates):
-                cell = ctk.CTkFrame(self.tpl_box, fg_color=theme.CARD, corner_radius=8)
-                cell.grid(row=i // 5, column=i % 5, padx=5, pady=5, sticky="n")
+                cell = ctk.CTkFrame(self.tpl_box.inner, fg_color=theme.CARD, corner_radius=8)
+                cell.grid(row=i // 5, column=i % 5, padx=4, pady=4, sticky="n")
                 img = load_image(t)
                 if img is not None:
                     pil = to_ctk_image(img)
-                    pil.thumbnail((64, 64), Image.LANCZOS)
+                    pil.thumbnail((60, 60), Image.LANCZOS)
                     ci = ctk.CTkImage(light_image=pil, dark_image=pil, size=pil.size)
                     imgs.append(ci)
-                    ctk.CTkLabel(cell, text="", image=ci, width=68, height=68).pack(
-                        padx=6, pady=(6, 2))
-                label(cell, Path(t).stem[:10], 8, theme.TEXT, anchor="center",
-                      width=76).pack(padx=2)
-                ctk.CTkButton(cell, text="删除", width=76, height=22,
+                    ctk.CTkLabel(cell, text="", image=ci, width=64, height=64).pack(
+                        padx=4, pady=(4, 2))
+                label(cell, Path(t).stem[:12], 8, theme.TEXT, anchor="center",
+                      width=84).pack(padx=2)
+                ctk.CTkButton(cell, text="删除", width=78, height=20,
                               fg_color=theme.DANGER, text_color="white",
                               font=(theme.FONT, theme.fs(8)),
                               command=lambda idx=i: self._remove_template(idx)).pack(
-                    padx=6, pady=(2, 6))
+                    padx=4, pady=(2, 4))
             self._tpl_imgs = imgs
         try:
             self.tpl_label.configure(
@@ -878,8 +882,6 @@ class RuleDialog(ctk.CTkToplevel):
             handle.pack(side="left", padx=(0, 2))
             handle.bind("<ButtonPress-1>", lambda _e, idx=i: self._drag_start("hit", idx))
             label(row, "%02d" % (i + 1), 9, theme.LINE, width=30).pack(side="left")
-            label(row, TYPE_NAMES.get(str(a.get("type")), str(a.get("type"))), 8,
-                  theme.ACCENT, width=58).pack(side="left", padx=(0, 4))
             label(row, action_summary(a), 10, theme.TEXT, anchor="w").pack(side="left", fill="x", expand=True)
             _delay = int(a.get("delay_ms", 0) or 0)
             if _delay:
@@ -972,8 +974,6 @@ class RuleDialog(ctk.CTkToplevel):
             handle.pack(side="left", padx=(0, 2))
             handle.bind("<ButtonPress-1>", lambda _e, idx=i: self._drag_start("miss", idx))
             label(row, "%02d" % (i + 1), 9, theme.LINE, width=30).pack(side="left")
-            label(row, TYPE_NAMES.get(str(a.get("type")), str(a.get("type"))), 8,
-                  theme.ACCENT, width=58).pack(side="left", padx=(0, 4))
             label(row, action_summary(a), 10, theme.TEXT, anchor="w").pack(
                 side="left", fill="x", expand=True)
             _delay = int(a.get("delay_ms", 0) or 0)
