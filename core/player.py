@@ -21,7 +21,7 @@ from .hotkeys import parse_hotkey
 from .log import log
 from .monitor_rules import MonitorEngine
 from .script import ScriptDoc, normalize_action
-from .screen import MatchResult, TemplateMatcher, grab  # noqa: F401  (tests monkeypatch grab)
+from .screen import MatchResult, TemplateMatcher, grab, resolve_image_path  # noqa: F401  (tests monkeypatch grab)
 from .winapi import (key_down, key_up, mouse_down, mouse_up, mouse_wheel,
                      set_cursor_pos)
 
@@ -281,13 +281,7 @@ class Player:
 
     # ------------------------------------------------------------ monitor
     def _resolve_template(self, name: str) -> str:
-        p = Path(name)
-        if p.is_absolute():
-            return str(p)
-        candidate = self._script_dir / p
-        if candidate.exists():
-            return str(candidate)
-        return str(ROOT / p)
+        return resolve_image_path(name, (self._script_dir, ROOT))
 
     def _exec_monitor(self, ev: dict) -> bool:
         source = None

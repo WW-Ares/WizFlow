@@ -1,4 +1,4 @@
-"""迷你悬浮窗：310×88，右上角，状态胶囊 + F6/F7/F8 一键操作。
+"""迷你悬浮窗：310×96，右上角，状态胶囊 + F6/F7/F8 一键操作。
 
 背景层与文字层分成两个 Toplevel：
 - 背景层允许调透明度，只画卡片和色块；
@@ -12,7 +12,7 @@ import tkinter.font as tkfont
 
 from config import Config
 from core.winapi import virtual_screen_rect
-from core.window_geometry import primary_work_area, rect_visible_enough
+from core.window_geometry import primary_work_area, rect_visible_enough, work_area_at
 from . import theme
 
 TRANSPARENT = "#010203"
@@ -307,10 +307,13 @@ class HudWindow(tk.Toplevel):
         except Exception:
             pass
         try:
-            vx, vy, vw, vh = virtual_screen_rect()
             x = int(self._anchor_x or self.winfo_x())
             y = int(self._anchor_y or self.winfo_y())
-            y = max(vy, min(y, vy + vh - h))
+            # 按所在显示器的工作区夹取，避免通知区压到任务栏
+            wx, wy, ww, wh = work_area_at(x, y)
+            h = min(h, max(CARD_H, wh))
+            x = max(wx, min(x, wx + ww - CARD_W))
+            y = max(wy, min(y, wy + wh - h))
             geo = "%dx%d+%d+%d" % (CARD_W, h, x, y)
             self.geometry(geo)
             self.bg.geometry(geo)

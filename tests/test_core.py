@@ -625,6 +625,193 @@ def test_background_rules():
         rules_mod.make_source = orig
 
 
+def test_background_rule_modes():
+    """后台常驻规则必须遵循 match_mode / 每轮上限 / 优先级顺序。"""
+    import core.rules as rules_mod
+    from core.rules import BackgroundRuleEngine
+
+    tmp = Path(tempfile.mkdtemp(prefix="kmg_bg_modes_"))
+    base = np.zeros((160, 280, 3), np.uint8)
+    cv2.rectangle(base, (20, 20), (80, 80), (0, 220, 255), -1)
+    cv2.putText(base, "A", (35, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)
+    cv2.rectangle(base, (170, 60), (250, 140), (80, 220, 80), -1)
+    cv2.putText(base, "B", (195, 115), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)
+    ta = tmp / "a.png"
+    tb = tmp / "b.png"
+    save_png(base[20:81, 20:81], ta)
+    save_png(base[60:141, 170:251], tb)
+    only_a = np.zeros_like(base)
+    only_a[20:81, 20:81] = base[20:81, 20:81]
+    both = base
+
+    def mk_rule(rid, tpl, prio):
+        return {
+            "id": rid, "name": rid, "enabled": True, "resident": True,
+            "priority": prio, "template": str(tpl), "templates": [str(tpl)],
+            "threshold": 0.9, "roi": [], "present_ms": 0, "absent_ms": 0,
+            "cooldown_ms": 0, "miss_cooldown_ms": 0,
+            "fires_per_present": 1, "fires_per_absence": 1,
+            "actions": [{"type": "notify", "text": rid}],
+            "miss_actions": [],
+        }
+
+    class FakeSource:
+        origin = (0, 0)
+        def __init__(self, state):
+            self.state = state
+        def grab(self, rect):
+            return self.state["frame"].copy()
+        def close(self):
+            pass
+
+    def make_cfg(mode, limit, rules, links=None):
+        return {"multi_monitor": {
+            "region": [0, 0, 280, 160], "capture_mode": "screen", "poll_ms": 20,
+            "match_mode": mode, "max_actions_per_tick": limit,
+            "rules": rules, "links": links or [],
+            "on_none_present": [], "grace_ms": 50,
+        }}
+
+    def run_case(mode, limit, order="AB", frame=None):
+        state = {"frame": both if frame is None else frame}
+        rs = [mk_rule("A", ta, 90), mk_rule("B", tb, 80)]
+        if order == "BA":
+            rs.reverse()
+        cfg = make_cfg(mode, limit, rs)
+        acts = []
+        orig = rules_mod.make_source
+        rules_mod.make_source = lambda _g: FakeSource(state)
+        eng = BackgroundRuleEngine(lambda: cfg,
+                                   lambda rid, act: acts.append((rid, act.get("text"))))
+        try:
+            eng.start()
+            time.sleep(0.45)
+        finally:
+            eng.stop()
+            eng.join(timeout=2)
+            rules_mod.make_source = orig
+        return acts
+
+    # 每轮上限=1 时，先执行优先级高的 A（即使规则列表顺序是 B、A）
+    acts = run_case("any", 1, order="BA")
+    assert acts and acts[0][0] == "A", acts
+
+    # 不限次数时按优先级顺序执行 A → B
+    acts = run_case("any", 0, order="BA")
+    assert [a[0] for a in acts] == ["A", "B"], acts
+
+    acts = run_case("priority", 0, order="BA")
+    assert [a[0] for a in acts] == ["A", "B"], acts
+
+    # 全部满足：只有 A 时不能执行
+    acts = run_case("all", 0, frame=only_a)
+    assert acts == [], acts
+
+    # 全部满足：A、B 同时存在时两者都执行
+    acts = run_case("all", 0, frame=both)
+    assert {a[0] for a in acts} == {"A", "B"}, acts
+
+    # 顺序满足：A 先出现先执行，B 后出现再执行
+    state = {"frame": only_a}
+    rs = [mk_rule("A", ta, 90), mk_rule("B", tb, 80)]
+    cfg = make_cfg("sequence", 0, rs)
+    acts = []
+    orig = rules_mod.make_source
+    rules_mod.make_source = lambda _g: FakeSource(state)
+    eng = BackgroundRuleEngine(lambda: cfg,
+                               lambda rid, act: acts.append((rid, act.get("text"))))
+    try:
+        eng.start()
+        end = time.time() + 1.5
+        while time.time() < end and not acts:
+            time.sleep(0.02)
+        assert [a[0] for a in acts] == ["A"], acts
+        state["frame"] = both
+        end = time.time() + 1.5
+        while time.time() < end and len(acts) < 2:
+            time.sleep(0.02)
+        assert [a[0] for a in acts] == ["A", "B"], acts
+    finally:
+        eng.stop()
+        eng.join(timeout=2)
+        rules_mod.make_source = orig
+
+    # 关联组 all 的组级动作只执行一次，不再执行成员动作
+    state = {"frame": both}
+    rs = [mk_rule("A", ta, 90), mk_rule("B", tb, 80)]
+    link = {"id": "g1", "name": "g1", "type": "all", "members": ["A", "B"],
+            "priority": 10, "timeout_ms": 3000,
+            "actions": [{"type": "notify", "text": "LINK"}]}
+    cfg = make_cfg("any", 0, rs, [link])
+    acts = []
+    orig = rules_mod.make_source
+    rules_mod.make_source = lambda _g: FakeSource(state)
+    eng = BackgroundRuleEngine(lambda: cfg,
+                               lambda rid, act: acts.append((rid, act.get("text"))))
+    try:
+        eng.start()
+        time.sleep(0.45)
+    finally:
+        eng.stop()
+        eng.join(timeout=2)
+        rules_mod.make_source = orig
+    assert acts == [("g1", "LINK")], acts
+
+    # 关联组 all 未配置组级动作时，执行各成员自己的动作
+    state = {"frame": both}
+    rs = [mk_rule("A", ta, 90), mk_rule("B", tb, 80)]
+    link = {"id": "g2", "name": "g2", "type": "all", "members": ["A", "B"],
+            "priority": 10, "timeout_ms": 3000, "actions": []}
+    cfg = make_cfg("any", 0, rs, [link])
+    acts = []
+    orig = rules_mod.make_source
+    rules_mod.make_source = lambda _g: FakeSource(state)
+    eng = BackgroundRuleEngine(lambda: cfg,
+                               lambda rid, act: acts.append((rid, act.get("text"))))
+    try:
+        eng.start()
+        time.sleep(0.45)
+    finally:
+        eng.stop()
+        eng.join(timeout=2)
+        rules_mod.make_source = orig
+    assert {a[0] for a in acts} == {"A", "B"}, acts
+
+    # 无效模板规则不参与 all，避免整组永久卡死
+    state = {"frame": only_a}
+    rs = [mk_rule("A", ta, 90), mk_rule("BAD", tmp / "missing.png", 99)]
+    cfg = make_cfg("all", 0, rs)
+    acts = []
+    orig = rules_mod.make_source
+    rules_mod.make_source = lambda _g: FakeSource(state)
+    eng = BackgroundRuleEngine(lambda: cfg,
+                               lambda rid, act: acts.append((rid, act.get("text"))))
+    try:
+        eng.start()
+        time.sleep(0.45)
+    finally:
+        eng.stop()
+        eng.join(timeout=2)
+        rules_mod.make_source = orig
+    assert [a[0] for a in acts] == ["A"], acts
+
+    return "any/priority/all/sequence/link ok"
+
+def test_template_path_resolution():
+    from core.monitor_rules import resolve_rule_templates, rule_has_template
+    from core.screen import resolve_image_path
+
+    tmp = Path(tempfile.mkdtemp(prefix="kmg_path_"))
+    save_png(np.zeros((20, 20, 3), np.uint8), tmp / "tiny.png")
+    assert Path(resolve_image_path("tiny.png", (tmp,))).is_file()
+    rule = {"template": "tiny.png", "templates": []}
+    resolved = resolve_rule_templates(rule, (tmp,))
+    assert Path(resolved["template"]).is_file()
+    assert rule_has_template(resolved, (tmp,))
+    assert not rule_has_template({"template": "missing.png", "templates": []}, (tmp,))
+    return "relative/base-dir resolution ok"
+
+
 def test_input_actions():
     from core.actions import action_summary, execute_input
     assert execute_input({"type": "click", "button": "left", "clicks": 2,
@@ -671,7 +858,8 @@ def main():
              test_wheel_action, test_wheel_multi_action, test_keygrab_names,
              test_monitor_profile_wheel_roundtrip, test_window_capture,
              test_supervisor_edges, test_pause_reasons,
-             test_inline_node_actions, test_background_rules, test_input_actions,
+             test_inline_node_actions, test_background_rules, test_template_path_resolution,
+             test_background_rule_modes, test_input_actions,
              test_window_geometry, test_hotkey_conflicts]
     failed = 0
     for fn in tests:

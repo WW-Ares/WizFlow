@@ -365,30 +365,6 @@ class ScrollPage(ctk.CTkFrame):
     def _wheel(self, e):
         return
 
-def autohide_scrollbar(scroll_frame):
-    """CTkScrollableFrame 的滚动条：内容超出才显示。"""
-    def update(*_a):
-        try:
-            sb = scroll_frame._scrollbar
-            canvas = scroll_frame._parent_canvas
-            bbox = canvas.bbox("all") or (0, 0, 0, 0)
-            need = (bbox[3] - bbox[1]) > canvas.winfo_height() + 2
-            if need:
-                sb.grid()
-            else:
-                sb.grid_remove()
-                canvas.yview_moveto(0)
-        except Exception:
-            pass
-    scroll_frame.bind("<Configure>", lambda _e: update(), add="+")
-    try:
-        scroll_frame._parent_canvas.bind("<Configure>", lambda _e: update(), add="+")
-    except Exception:
-        pass
-    scroll_frame.after(120, update)
-    scroll_frame.after(450, update)
-    return update
-
 class AutoScrollFrame(ctk.CTkFrame):
     """竖向滚动容器：内容超出才显示滚动条，隐藏时不占宽度。"""
 
@@ -475,8 +451,13 @@ class AutoScrollFrame(ctk.CTkFrame):
     def capture_wheel(self):
         """滚轮只滚动本容器：绑到整棵子树并截断事件，外层滚动容器不再响应。"""
         def walk(w):
+            # 嵌套的 AutoScrollFrame 自己处理滚轮，外层不要抢占
+            if w is not self and isinstance(w, AutoScrollFrame):
+                return
             try:
-                w.bind("<MouseWheel>", self._wheel_capture, add="+")
+                if not getattr(w, "_wf_wheel_captured", False):
+                    w._wf_wheel_captured = True
+                    w.bind("<MouseWheel>", self._wheel_capture, add="+")
             except Exception:
                 pass
             for child in w.winfo_children():

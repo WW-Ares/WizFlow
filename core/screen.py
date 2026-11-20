@@ -13,6 +13,7 @@ import cv2
 import mss
 import numpy as np
 
+from config import ICONS_DIR, ROOT
 from .winapi import virtual_screen_rect
 
 _tls = threading.local()
@@ -59,6 +60,35 @@ def load_image(path: str | Path) -> np.ndarray | None:
         return img
     except Exception:
         return None
+
+
+def resolve_image_path(name: str | Path, base_dirs=()) -> str:
+    """把规则里的图片路径解析成实际存在的路径。
+
+    支持绝对路径、脚本目录、程序根目录和图标目录；找不到时返回原值，
+    由调用方决定是否视为无效模板。
+    """
+    raw = str(name or "")
+    if not raw:
+        return ""
+    p = Path(raw)
+    if p.is_absolute():
+        return str(p)
+    for base in base_dirs or ():
+        if not base:
+            continue
+        cand = Path(base) / p
+        if cand.exists():
+            return str(cand)
+    for base in (ROOT, ICONS_DIR):
+        cand = Path(base) / p
+        if cand.exists():
+            return str(cand)
+    # 兼容只保存文件名的旧规则
+    cand = ICONS_DIR / p.name
+    if cand.exists():
+        return str(cand)
+    return raw
 
 
 def to_ctk_image(img: np.ndarray):

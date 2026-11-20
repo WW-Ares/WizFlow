@@ -6,7 +6,7 @@ import customtkinter as ctk
 from core.actions import action_summary
 from . import theme
 from .rules_window import ActionDialog
-from .widgets import label
+from .widgets import AutoScrollFrame, label
 
 
 class ActionList(ctk.CTkFrame):
@@ -17,9 +17,9 @@ class ActionList(ctk.CTkFrame):
         self._drag_idx = None
         self._motion_id = None
         self._release_id = None
-        self.box = ctk.CTkScrollableFrame(self, fg_color=theme.BG, corner_radius=8,
-                                          height=height)
-        self.box.pack(fill="x", expand=True)
+        self.scroll = AutoScrollFrame(self, height=height)
+        self.scroll.pack(fill="x", expand=True)
+        self.box = self.scroll.inner
         self._refresh()
         ctk.CTkButton(self, text="+ 添加动作", width=96, height=26,
                       fg_color=theme.ACCENT, text_color="#04121f",
@@ -31,6 +31,7 @@ class ActionList(ctk.CTkFrame):
             w.destroy()
         if not self.actions:
             label(self.box, "还没有动作", 9, theme.MUTED).pack(anchor="w", padx=8, pady=6)
+            self.scroll.capture_wheel()
             return
         for i, a in enumerate(self.actions):
             row = ctk.CTkFrame(self.box, fg_color="transparent")
@@ -47,6 +48,7 @@ class ActionList(ctk.CTkFrame):
             ctk.CTkButton(row, text="×", width=26, height=24, fg_color=theme.CARD2,
                           hover_color=theme.DANGER, font=(theme.FONT, theme.fs(10)),
                           command=lambda idx=i: self._delete(idx)).pack(side="left")
+        self.scroll.capture_wheel()
 
     def _drag_start(self, idx):
         self._drag_idx = idx

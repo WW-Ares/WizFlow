@@ -19,6 +19,37 @@ def primary_work_area() -> tuple[int, int, int, int]:
         return 0, 0, 1920, 1080
 
 
+class _POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", ctypes.c_ulong),
+                ("rcMonitor", _RECT),
+                ("rcWork", _RECT),
+                ("dwFlags", ctypes.c_ulong)]
+
+
+def work_area_at(x: int, y: int) -> tuple[int, int, int, int]:
+    """指定坐标所在显示器的工作区（不含任务栏）；失败时退回主屏工作区。"""
+    try:
+        u32 = ctypes.windll.user32
+        u32.MonitorFromPoint.restype = ctypes.c_void_p
+        u32.MonitorFromPoint.argtypes = [_POINT, ctypes.c_ulong]
+        u32.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_MONITORINFO)]
+        mon = u32.MonitorFromPoint(_POINT(int(x), int(y)), 2)  # MONITOR_DEFAULTTONEAREST
+        if mon:
+            info = _MONITORINFO()
+            info.cbSize = ctypes.sizeof(_MONITORINFO)
+            if u32.GetMonitorInfoW(mon, ctypes.byref(info)):
+                r = info.rcWork
+                return (int(r.left), int(r.top),
+                        int(r.right - r.left), int(r.bottom - r.top))
+    except Exception:
+        pass
+    return primary_work_area()
+
+
 def monitor_rects() -> list[tuple[int, int, int, int]]:
     """所有显示器的 (left, top, width, height)；失败时返回空列表。"""
     try:

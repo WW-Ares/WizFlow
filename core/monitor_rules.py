@@ -8,7 +8,7 @@ from pathlib import Path
 from .actions import ActionContext, execute_actions
 from .log import log
 from .capture import make_source
-from .screen import MatchResult, TemplateMatcher, grab
+from .screen import MatchResult, TemplateMatcher, grab, resolve_image_path
 
 DEFAULTS_RULE = {
     "name": "规则",
@@ -200,11 +200,37 @@ def _abs_roi(region, roi):
     return x, y, w, h
 
 
-def match_rule(matcher: TemplateMatcher, frame, region, rule, origin=(0, 0)) -> MatchResult:
-    ox, oy = int(origin[0]), int(origin[1])
+def rule_templates(rule: dict) -> list[str]:
     tpls = rule.get("templates") or []
     if not tpls and rule.get("template"):
         tpls = [rule["template"]]
+    return [str(t) for t in tpls if str(t)]
+
+
+def resolve_rule_templates(rule: dict, base_dirs=()) -> dict:
+    """返回一份模板路径已解析的规则副本，不修改原始配置。"""
+    out = dict(rule)
+    tpls = [resolve_image_path(t, base_dirs) for t in rule_templates(rule)]
+    out["templates"] = tpls
+    if tpls:
+        out["template"] = tpls[0]
+    elif rule.get("template"):
+        out["template"] = resolve_image_path(str(rule.get("template")), base_dirs)
+    else:
+        out["template"] = ""
+    return out
+
+
+def rule_has_template(rule: dict, base_dirs=()) -> bool:
+    for t in rule_templates(rule):
+        if Path(resolve_image_path(t, base_dirs)).is_file():
+            return True
+    return False
+
+
+def match_rule(matcher: TemplateMatcher, frame, region, rule, origin=(0, 0)) -> MatchResult:
+    ox, oy = int(origin[0]), int(origin[1])
+    tpls = rule_templates(rule)
     if not tpls:
         return MatchResult()
     x, y, w, h = [int(v) for v in region]
@@ -271,10 +297,17 @@ class MonitorEngine:
         if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
             on_status("监控组区域无效", None)
             return "invalid_region"
-        rules = group["rules"]
+        raw_rules = group["rules"]
+        rules = []
+        for r in raw_rules:
+            rr = resolve_rule_templates(r, (script_dir,))
+            if not rule_has_template(rr):
+                log("监控规则模板不存在，已跳过: %s" % rr.get("name", rr.get("id", "")))
+                continue
+            rules.append(rr)
         links = group["links"]
         if not rules:
-            on_status("监控组没有规则", None)
+            on_status("监控组没有可用模板的规则", None)
             return "empty"
         by_id = {r["id"]: r for r in rules}
         states = {r["id"]: RuleState() for r in rules}

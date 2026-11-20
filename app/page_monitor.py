@@ -24,8 +24,9 @@ from core.capture import (client_rect_screen, find_window, make_source,
                           window_is_fullscreen)
 from core.log import log
 from core.monitor import LiveMonitor, MonitorProfile, ProbeResult, annotate, crop_match, probe
-from core.monitor_rules import group_to_event, match_rule, normalize_monitor_group
-from core.screen import grab, load_image, to_ctk_image
+from core.monitor_rules import (group_to_event, match_rule, normalize_monitor_group,
+                                 resolve_rule_templates)
+from core.screen import grab, load_image, resolve_image_path, to_ctk_image
 from core.script import list_scripts, new_script_path
 from .region_picker import RegionPicker
 from .icon_crop_dialog import IconCropDialog
@@ -233,17 +234,19 @@ class MonitorPageMixin:
                 with tempfile.TemporaryDirectory(prefix="wizflow_scheme_") as td:
                     root = Path(td)
                     (root / "scheme.json").write_text(data, encoding="utf-8")
-                    icons = set()
+                    icons = {}
                     for r in (s.get("group", {}) or {}).get("rules", []):
-                        tpl = str((r.get("templates") or [r.get("template", "")])[0] or "")
-                        if tpl:
-                            icons.add(Path(tpl).name)
+                        for tpl in (r.get("templates") or [r.get("template", "")]):
+                            tpl = str(tpl or "")
+                            if not tpl:
+                                continue
+                            src = Path(resolve_image_path(tpl, (ROOT,)))
+                            if src.is_file():
+                                icons[src.name] = src
                     if icons:
                         (root / "icons").mkdir(exist_ok=True)
-                        for name in icons:
-                            src = ICONS_DIR / name
-                            if src.exists():
-                                shutil.copy2(src, root / "icons" / name)
+                        for name, src in icons.items():
+                            shutil.copy2(src, root / "icons" / name)
                     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
                         for f in root.rglob("*"):
                             if f.is_file():
@@ -254,12 +257,41 @@ class MonitorPageMixin:
         except Exception as exc:
             self._toast("导出失败：%s" % exc, "error")
 
+    def _rewrite_icon_path(self, path) -> str:
+        raw = str(path or "")
+        if not raw:
+            return ""
+        name = Path(raw).name
+        return ("icons/" + name) if (ICONS_DIR / name).is_file() else raw
+
+    def _rewrite_rule_icons(self, rules) -> int:
+        """把导入规则里的绝对/旧路径改写成本机 icons/ 路径；返回缺失数量。"""
+        missing = 0
+        for r in rules or []:
+            if not isinstance(r, dict):
+                continue
+            tpls = r.get("templates") or ([r.get("template")] if r.get("template") else [])
+            out = []
+            for t in tpls:
+                raw = str(t or "")
+                if not raw:
+                    continue
+                new = self._rewrite_icon_path(raw)
+                if new == raw and not (ICONS_DIR / Path(raw).name).is_file():
+                    missing += 1
+                out.append(new)
+            if out:
+                r["templates"] = out
+                r["template"] = out[0]
+        return missing
+
     def _import_scheme(self):
         path = filedialog.askopenfilename(
             title="导入监控方案",
             filetypes=[("WizFlow 方案包", "*.zip"), ("JSON", "*.json")])
         if not path:
             return
+        missing = 0
         try:
             tmpdir = None
             if zipfile.is_zipfile(path):
@@ -298,6 +330,18 @@ class MonitorPageMixin:
                     for f in icon_dir.iterdir():
                         if f.is_file() and f.suffix.lower() in (".png", ".jpg", ".jpeg", ".bmp"):
                             shutil.copy2(f, ICONS_DIR / f.name)
+                group = data.get("group") if isinstance(data, dict) else None
+                if isinstance(group, dict):
+                    missing += self._rewrite_rule_icons(group.get("rules") or [])
+                profile = data.get("profile") if isinstance(data, dict) else None
+                if isinstance(profile, dict):
+                    for key in ("template",):
+                        raw = str(profile.get(key) or "")
+                        if raw:
+                            new = self._rewrite_icon_path(raw)
+                            if new == raw:
+                                missing += 1
+                            profile[key] = new
             else:
                 data = json.loads(Path(path).read_text(encoding="utf-8"))
         except Exception as exc:
@@ -325,7 +369,10 @@ class MonitorPageMixin:
         self._apply_scheme_to_ui()
         self._refresh_scheme_menu()
         self._save_scheme_library()
-        self._toast("已导入方案：%s" % name, "ok")
+        if missing:
+            self._toast("已导入方案：%s；%d 个图标缺失，请补充到 icons/" % (name, missing), "warn")
+        else:
+            self._toast("已导入方案：%s" % name, "ok")
 
     def _build_monitor_page(self):
         outer, page = self._new_page()
@@ -688,11 +735,12 @@ class MonitorPageMixin:
             "rules": self.multi_group.get("rules") or [],
             "links": self.multi_group.get("links") or [],
             "on_none_present": self.multi_group.get("on_none_present") or [],
+            "note": "规则 JSON 不包含图标文件；跨机器迁移请使用方案导出 zip",
         }
         try:
             Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2),
                                   encoding="utf-8")
-            self._toast("已导出 %d 条规则" % len(data["rules"]), "ok")
+            self._toast("已导出 %d 条规则（不含图标；跨机器请用方案导出）" % len(data["rules"]), "ok")
         except Exception as exc:
             self._toast("导出失败：%s" % exc, "error")
 
@@ -719,9 +767,11 @@ class MonitorPageMixin:
             g["links"] = []
             g["on_none_present"] = []
         id_map = {}
+        missing = 0
         existing = {str(r.get("id")) for r in g.get("rules", [])}
         for raw in rules:
             r = dict(raw)
+            missing += self._rewrite_rule_icons([r])
             old = str(r.get("id", ""))
             rid = "rule_" + uuid.uuid4().hex[:8]
             while rid in existing:
@@ -760,7 +810,10 @@ class MonitorPageMixin:
         if replace and data.get("on_none_present"):
             g["on_none_present"] = [a for a in data["on_none_present"] if isinstance(a, dict)]
         self._save_multi_group(g)
-        self._toast("已导入 %d 条规则" % len(rules), "ok")
+        if missing:
+            self._toast("已导入 %d 条规则；%d 个图标缺失（JSON 不含图标）" % (len(rules), missing), "warn")
+        else:
+            self._toast("已导入 %d 条规则" % len(rules), "ok")
 
     def _test_all_rules(self):
         region = self.monitor_profile.region
@@ -780,7 +833,8 @@ class MonitorPageMixin:
             for rule in self._rules():
                 if not (rule.get("templates") or rule.get("template")):
                     continue
-                res = match_rule(self.matcher, frame, region, rule, origin)
+                res = match_rule(self.matcher, frame, region,
+                                         resolve_rule_templates(rule, (ROOT,)), origin)
                 lines.append("%s %.2f" % (rule.get("name", "规则"), res.score))
             if not lines:
                 self._toast("没有可测试的规则（需要图标模板）", "warn")
@@ -1087,7 +1141,8 @@ class MonitorPageMixin:
                     if not rule.get("enabled", True) or not (rule.get("templates") or rule.get("template")):
                         continue
                     try:
-                        res = match_rule(self.matcher, frame, region, rule, origin)
+                        res = match_rule(self.matcher, frame, region,
+                                         resolve_rule_templates(rule, (ROOT,)), origin)
                         if res.score >= float(rule.get("threshold", 0.85)):
                             x = int(res.x) - region[0]
                             y = int(res.y) - region[1]

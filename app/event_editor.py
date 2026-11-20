@@ -19,7 +19,7 @@ from .region_picker import RegionPicker
 from .icon_crop_dialog import IconCropDialog
 from .action_list import ActionList
 from core.screen import grab, to_ctk_image, load_image
-from .widgets import label
+from .widgets import AutoScrollFrame, label
 from .window_icon import apply_window_icon
 
 KIND_CLICK = "鼠标点击"
@@ -125,8 +125,9 @@ class EventEditorDialog(ctk.CTkToplevel):
                       font=(theme.FONT, theme.fs(12), "bold"),
                       command=self._confirm).pack(side="right", padx=8)
 
-        self.body = ctk.CTkScrollableFrame(self, fg_color=theme.BG2, corner_radius=10)
-        self.body.pack(fill="both", expand=True, padx=18, pady=6)
+        self.scroll = AutoScrollFrame(self, height=520)
+        self.scroll.pack(fill="both", expand=True, padx=18, pady=6)
+        self.body = self.scroll.inner
         self._rebuild()
         self.after(120, self._focus)
 
@@ -215,6 +216,7 @@ class EventEditorDialog(ctk.CTkToplevel):
             self._build_script()
         else:
             self._build_raw()
+        self.scroll.capture_wheel()
 
     def _coords(self, row, x_default=None, y_default=None):
         x = x_default if x_default is not None else self._xy()[0]

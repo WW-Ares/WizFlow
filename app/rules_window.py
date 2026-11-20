@@ -9,12 +9,14 @@ from tkinter import messagebox
 import customtkinter as ctk
 from PIL import Image
 
-from config import ICONS_DIR
+from config import ICONS_DIR, ROOT
 from core.actions import action_summary
 from core.monitor_rules import (match_rule, normalize_link,
-                                normalize_monitor_group, normalize_rule)
+                                normalize_monitor_group, normalize_rule,
+                                resolve_rule_templates)
 from core.script import list_scripts
-from core.screen import TemplateMatcher, grab, load_image, to_ctk_image
+from core.screen import (TemplateMatcher, grab, load_image, resolve_image_path,
+                         to_ctk_image)
 from . import theme
 from .icon_crop_dialog import IconCropDialog
 from .point_picker import PointPicker
@@ -89,7 +91,7 @@ class ActionDialog(ctk.CTkToplevel):
         self.vars = {}
         self._build()
         self.update_idletasks()
-        target_h = max(720, self.scroll.winfo_reqheight() + 76)
+        target_h = max(720, self.form.winfo_reqheight() + 76)
         self.geometry("1000x%d" % target_h)
         self.after(100, self._center)
 
@@ -100,8 +102,10 @@ class ActionDialog(ctk.CTkToplevel):
                                            command=lambda _v: self._rebuild(),
                                            fg_color=theme.CARD2, button_color=theme.LINE)
         self.type_menu.pack(fill="x", padx=18)
-        self.form = ctk.CTkScrollableFrame(self, fg_color=theme.CARD, corner_radius=10)
-        self.form.pack(fill="both", expand=True, padx=18, pady=10)
+        self.form_scroll = AutoScrollFrame(self, height=520)
+        self.form_scroll.pack(fill="both", expand=True, padx=18, pady=10)
+        self.form = self.form_scroll.inner
+        self.scroll = self.form_scroll
         self._rebuild()
         row = ctk.CTkFrame(self, fg_color="transparent")
         row.pack(fill="x", padx=18, pady=12)
@@ -265,6 +269,7 @@ class ActionDialog(ctk.CTkToplevel):
         elif t == "stop":
             self._combo("scope", "停止范围", list(STOP_DISP.keys()),
                         STOP_REV.get(a.get("scope", "monitor"), "停止本监控"))
+        self.form_scroll.capture_wheel()
 
     def _position_fields(self, a):
         self._pos_action = a
@@ -1093,15 +1098,17 @@ class LinkDialog(ctk.CTkToplevel):
 
         label(self, "成员规则", 11, theme.TEXT).pack(anchor="w", padx=20, pady=(8, 4))
         self.member_vars = {}
-        box = ctk.CTkScrollableFrame(self, fg_color=theme.CARD, corner_radius=10)
-        box.pack(fill="both", expand=True, padx=20, pady=6)
+        self.member_scroll = AutoScrollFrame(self, height=400)
+        self.member_scroll.pack(fill="both", expand=True, padx=20, pady=6)
+        box = self.member_scroll.inner
         old = set(self.link.get("members") or [])
         for r in self.rules:
             var = tk.BooleanVar(value=r.get("id") in old)
             ctk.CTkCheckBox(box, text="%s  (优先级 %d)" % (r.get("name", r.get("id")), r.get("priority", 50)),
-                            variable=var, font=(theme.FONT, theme.fs(10)),
-                            progress_color=theme.ACCENT).pack(anchor="w", pady=3, padx=6)
+                            variable=var, font=(theme.FONT, theme.fs(10))).pack(
+                anchor="w", pady=3, padx=6)
             self.member_vars[r.get("id")] = var
+        self.member_scroll.capture_wheel()
         row2 = ctk.CTkFrame(self, fg_color="transparent")
         row2.pack(fill="x", padx=20, pady=12)
         ctk.CTkButton(row2, text="保存关联组", height=36, fg_color=theme.ACCENT,
@@ -1209,8 +1216,7 @@ class RulesWindow(ctk.CTkToplevel):
         self._b(bar, "删除", self._delete_rule, 64, theme.DANGER, "white")
         self._b(bar, "上移", lambda: self._move_rule(-1), 64)
         self._b(bar, "下移", lambda: self._move_rule(1), 64)
-        self.rules_scroll = ctk.CTkScrollableFrame(left.body, fg_color=theme.BG2,
-                                                   corner_radius=8)
+        self.rules_scroll = AutoScrollFrame(left.body, height=360)
         self.rules_scroll.pack(fill="both", expand=True)
         self.rule_hint = label(left.body, "添加规则后，在此按优先级排列", 9)
         self.rule_hint.pack(anchor="w", pady=(6, 0))
@@ -1223,8 +1229,7 @@ class RulesWindow(ctk.CTkToplevel):
         self._b(rb, "编辑", self._edit_link, 64)
         self._b(rb, "删除", self._delete_link, 64, theme.DANGER, "white")
         self._b(rb, "全部消失动作", self._edit_none_actions, 104, theme.PURPLE, "white")
-        self.links_scroll = ctk.CTkScrollableFrame(right.body, fg_color=theme.BG2,
-                                                   corner_radius=8)
+        self.links_scroll = AutoScrollFrame(right.body, height=360)
         self.links_scroll.pack(fill="both", expand=True)
         label(right.body, "互斥=只执行最高优先级成员；同时满足=全部同帧命中；顺序满足=按成员顺序等待。",
               9).pack(anchor="w", pady=(6, 0))
@@ -1266,16 +1271,18 @@ class RulesWindow(ctk.CTkToplevel):
         return normalize_monitor_group(g)
 
     def _refresh_rules(self):
-        for w in list(self.rules_scroll.winfo_children()):
+        box = self.rules_scroll.inner
+        for w in list(box.winfo_children()):
             w.destroy()
         rules = list(self.group["rules"])
         if not rules:
-            label(self.rules_scroll, "还没有规则，点「添加规则」", 10, theme.MUTED).pack(
+            label(box, "还没有规则，点「添加规则」", 10, theme.MUTED).pack(
                 anchor="w", padx=8, pady=8)
             self.rule_hint.configure(text="0 条规则")
+            self.rules_scroll.capture_wheel()
             return
         for i, r in enumerate(rules):
-            row = ctk.CTkFrame(self.rules_scroll,
+            row = ctk.CTkFrame(box,
                                fg_color=theme.CARD2 if r["id"] == self.selected_rule_id else "transparent",
                                corner_radius=8)
             row.pack(fill="x", pady=2, padx=2)
@@ -1283,7 +1290,8 @@ class RulesWindow(ctk.CTkToplevel):
             ctk.CTkCheckBox(row, text="", variable=var, width=24,
                             command=lambda rid=r["id"], v=var: self._toggle_rule(rid, v.get())).pack(
                 side="left", padx=(6, 2))
-            img = load_image((r.get("templates") or [r.get("template")])[0]) if (r.get("templates") or r.get("template")) else None
+            first_tpl = (r.get("templates") or [r.get("template")])[0] if (r.get("templates") or r.get("template")) else ""
+            img = load_image(resolve_image_path(first_tpl, (ROOT,))) if first_tpl else None
             if img is not None:
                 pil = to_ctk_image(img)
                 pil.thumbnail((36, 36), Image.LANCZOS)
@@ -1305,6 +1313,7 @@ class RulesWindow(ctk.CTkToplevel):
             ctk.CTkButton(row, text="编辑", width=44, height=24, fg_color=theme.CARD2,
                           command=lambda rid=r["id"]: self._edit_rule(rid)).pack(side="left", padx=2)
         self.rule_hint.configure(text="%d 条规则；数值越大越先执行" % len(rules))
+        self.rules_scroll.capture_wheel()
 
     def _edit_none_actions(self):
         from .action_list import ActionList
@@ -1334,16 +1343,18 @@ class RulesWindow(ctk.CTkToplevel):
                       hover_color=theme.LINE, command=win.destroy).pack(side="left", padx=8)
 
     def _refresh_links(self):
-        for w in list(self.links_scroll.winfo_children()):
+        box = self.links_scroll.inner
+        for w in list(box.winfo_children()):
             w.destroy()
         links = self.group["links"]
         if not links:
-            label(self.links_scroll, "没有关联组；规则默认互相独立", 10, theme.MUTED).pack(
+            label(box, "没有关联组；规则默认互相独立", 10, theme.MUTED).pack(
                 anchor="w", padx=8, pady=8)
+            self.links_scroll.capture_wheel()
             return
         by_id = {r["id"]: r for r in self.group["rules"]}
         for l in links:
-            row = ctk.CTkFrame(self.links_scroll, fg_color=theme.CARD2, corner_radius=8)
+            row = ctk.CTkFrame(box, fg_color=theme.CARD2, corner_radius=8)
             row.pack(fill="x", pady=3, padx=2)
             members = "、".join(by_id[x]["name"] for x in l.get("members", []) if x in by_id)
             label(row, "%s  [%s]" % (l.get("name", l.get("id")), LINK_REV.get(l.get("type"), l.get("type"))),
@@ -1353,6 +1364,7 @@ class RulesWindow(ctk.CTkToplevel):
             ctk.CTkButton(row, text="编辑", width=44, height=22, fg_color=theme.CARD,
                           command=lambda lid=l["id"]: self._edit_link(lid)).pack(
                 side="right", padx=4, pady=2)
+        self.links_scroll.capture_wheel()
 
     def _select(self, rid):
         self.selected_rule_id = rid
@@ -1513,7 +1525,7 @@ class RulesWindow(ctk.CTkToplevel):
         for i, r in enumerate(g["rules"]):
             if not r.get("enabled", True) or not (r.get("templates") or r.get("template")):
                 continue
-            res = match_rule(matcher, frame, region, r)
+            res = match_rule(matcher, frame, region, resolve_rule_templates(r, (ROOT,)))
             if res.score >= r["threshold"]:
                 hits.append((r, res))
         hits.sort(key=lambda x: (-x[0]["priority"], -x[1].score))
@@ -1551,7 +1563,8 @@ class IconPickerDialog(ctk.CTkToplevel):
         self.title("从图标库选择")
         self.geometry("820x640")
         self.minsize(820, 600)
-        self.resizable(False, True)
+        self.resizable(False, True)
+
         self.configure(fg_color=theme.BG)
         self.transient(master)
         apply_window_icon(self)
@@ -1563,8 +1576,9 @@ class IconPickerDialog(ctk.CTkToplevel):
     def _build(self):
         label(self, "从图标库选择图片", 15, theme.TEXT).pack(anchor="w", padx=16, pady=(12, 2))
         label(self, "图标库路径：icons/", 9, theme.MUTED).pack(anchor="w", padx=16, pady=(0, 8))
-        scroll = ctk.CTkScrollableFrame(self, fg_color=theme.BG2, corner_radius=8)
-        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        self.icon_scroll = AutoScrollFrame(self, height=520)
+        self.icon_scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        scroll = self.icon_scroll.inner
         files = []
         for ext in ("*.png", "*.jpg", "*.jpeg", "*.bmp"):
             files.extend(ICONS_DIR.glob(ext))
@@ -1588,6 +1602,7 @@ class IconPickerDialog(ctk.CTkToplevel):
             b.grid(row=i // 5, column=i % 5, padx=6, pady=6, sticky="nsew")
         for c in range(5):
             scroll.grid_columnconfigure(c, weight=1)
+        self.icon_scroll.capture_wheel()
         ctk.CTkButton(self, text="取消", width=90, height=34, fg_color=theme.CARD2,
                       hover_color=theme.LINE, command=self.destroy).pack(
             side="right", padx=16, pady=(0, 12))
