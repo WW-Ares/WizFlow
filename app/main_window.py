@@ -28,7 +28,7 @@ from core.screen import TemplateMatcher
 from core.rules import BackgroundRuleEngine
 from core.vdisplay import keepalive
 from core.window_geometry import center_on_primary, primary_work_area, rect_visible_enough
-from core.winapi import is_admin, set_awake, virtual_screen_rect
+from core.winapi import is_admin, set_awake
 from .page_monitor import MonitorPageMixin
 from .page_record import RecordPageMixin
 from .page_settings import SettingsPageMixin
@@ -311,106 +311,14 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
                 self.tray.notify(text)
         except Exception:
             pass
-        # 悬浮窗开启时才弹提示卡片；关闭时只保留系统托盘气泡
-        if self._notify_hud_rect() is not None:
-            self._show_notify_popup(text)
-
-    def _notify_hud_rect(self):
+        # 悬浮窗开启时从悬浮窗本体下方长出来；关闭时只保留托盘气泡
         hud = getattr(self, "hud", None)
-        if hud is None:
-            return None
-        try:
-            if not hud.winfo_viewable():
-                return None
-            return (hud.winfo_rootx(), hud.winfo_rooty(),
-                    hud.winfo_width(), hud.winfo_height())
-        except Exception:
-            return None
-
-    def _place_notify_near_hud(self):
-        win = getattr(self, "_notify_win", None)
-        rect = self._notify_hud_rect()
-        if win is None or rect is None:
-            return
-        try:
-            w = max(1, win.winfo_width())
-            h = max(1, win.winfo_height())
-            hx, hy, hw, hh = rect
-            vx, vy, vw, vh = virtual_screen_rect()
-            # 从悬浮窗下沿探出，右边缘对齐
-            x = hx + hw - w
-            y = hy + hh + 6
-            if y + h + 8 > vy + vh:
-                y = hy - h - 6
-            x = max(vx + 8, min(x, vx + vw - w - 8))
-            y = max(vy + 8, min(y, vy + vh - h - 8))
-            win.geometry("+%d+%d" % (x, y))
-        except Exception:
-            pass
-
-    def _notify_tick(self):
-        self._notify_poll_id = None
-        if getattr(self, "_notify_win", None) is None:
-            return
-        if self._notify_hud_rect() is None:
-            self._destroy_notify()
-            return
-        self._place_notify_near_hud()
-        try:
-            self._notify_poll_id = self.after(150, self._notify_tick)
-        except Exception:
-            self._notify_poll_id = None
-
-    def _destroy_notify(self):
-        win = getattr(self, "_notify_win", None)
-        self._notify_win = None
-        poll_id = getattr(self, "_notify_poll_id", None)
-        self._notify_poll_id = None
-        if poll_id is not None:
+        if hud is not None:
             try:
-                self.after_cancel(poll_id)
+                if hud.winfo_viewable():
+                    hud.show_notice(text)
             except Exception:
                 pass
-        hud = getattr(self, "hud", None)
-        bind_id = getattr(self, "_notify_hud_bind", None)
-        self._notify_hud_bind = None
-        if hud is not None and bind_id:
-            try:
-                hud.unbind("<Configure>", bind_id)
-            except Exception:
-                pass
-        if win is not None:
-            try:
-                win.destroy()
-            except Exception:
-                pass
-
-    def _show_notify_popup(self, text: str):
-        self._destroy_notify()
-        try:
-            win = tk.Toplevel(self)
-            win.overrideredirect(True)
-            win.attributes("-topmost", True)
-            win.configure(bg=theme.LINE)
-            box = ctk.CTkFrame(win, fg_color=theme.CARD2, corner_radius=8)
-            box.pack(fill="both", expand=True, padx=1, pady=1)
-            ctk.CTkLabel(box, text=text, justify="left", anchor="w", wraplength=300,
-                         text_color=theme.TEXT,
-                         font=(theme.FONT, theme.fs(10))).pack(padx=14, pady=10)
-            win.update_idletasks()
-            w = min(340, max(180, win.winfo_reqwidth()))
-            h = win.winfo_reqheight()
-            win.geometry("%dx%d" % (w, h))
-            self._notify_win = win
-            self._place_notify_near_hud()
-            hud = getattr(self, "hud", None)
-            if hud is not None:
-                self._notify_hud_bind = hud.bind(
-                    "<Configure>", lambda _e: self._place_notify_near_hud(), add="+")
-            self._notify_poll_id = self.after(150, self._notify_tick)
-            win.after(3500, self._destroy_notify)
-        except Exception:
-            self._destroy_notify()
 
     def _set_header(self, text: str, color: str):
         self.header_pill.set(text, color)
@@ -448,7 +356,6 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             self.hud.show()
         else:
             self.hud.hide()
-            self._destroy_notify()
 
     # ================================================================ 托盘
     def _build_tray(self):

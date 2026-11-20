@@ -62,6 +62,13 @@ class HudWindow(tk.Toplevel):
         self._status_text = ""
         self._drag = None
         self._chip_tags = []
+        self._card_h = CARD_H
+        self._anchor_x = 0
+        self._anchor_y = 0
+        self._notice_text = ""
+        self._notice_h = 0
+        self._notice_hide_job = None
+        self._anim_job = None
 
         self.bg = tk.Toplevel(app)
         for w in (self, self.bg):
@@ -88,6 +95,7 @@ class HudWindow(tk.Toplevel):
         self.f_key = tkfont.Font(family="Consolas", size=-13, weight="bold")
         self.f_lbl = tkfont.Font(family="Microsoft YaHei UI", size=-14)
         self.f_pill = tkfont.Font(family="Microsoft YaHei UI", size=-14, weight="bold")
+        self.f_notice = tkfont.Font(family="Microsoft YaHei UI", size=-14)
 
         self._build_menu()
         self._draw()
@@ -133,8 +141,9 @@ class HudWindow(tk.Toplevel):
         for c in (self.canvas, self.bg_canvas):
             c.delete("all")
         bc, fc = self.bg_canvas, self.canvas
-        _round_rect(bc, 1, 1, CARD_W - 1, CARD_H - 1, 12, fill=BG, outline="")
-        _round_rect(fc, 1, 1, CARD_W - 1, CARD_H - 1, 12, fill="", outline=BORDER, width=1)
+        card_h = max(CARD_H, int(self._card_h))
+        _round_rect(bc, 1, 1, CARD_W - 1, card_h - 1, 12, fill=BG, outline="")
+        _round_rect(fc, 1, 1, CARD_W - 1, card_h - 1, 12, fill="", outline=BORDER, width=1)
 
         fc.create_polygon([15, 14, 29, 14, 32, 17, 32, 30, 29, 33, 15, 33, 12, 30, 12, 17],
                           smooth=True, splinesteps=16, fill=theme.ACCENT, outline="")
@@ -182,6 +191,12 @@ class HudWindow(tk.Toplevel):
                 c.tag_bind(tag, "<Leave>", lambda _e, t=tag: self._chip_hover(t, False))
                 c.tag_bind(tag, "<Button-1>", lambda _e, a=action: self._chip_click(a))
 
+        # 通知区：与卡片一体，从底部延伸出来
+        if self._notice_text and card_h > CARD_H:
+            fc.create_line(16, CARD_H, CARD_W - 16, CARD_H, fill=CHIP_LINE)
+            fc.create_text(18, CARD_H + 10, text=self._notice_text, anchor="nw",
+                           font=self.f_notice, fill="#dbe6f5", width=CARD_W - 36)
+
     def _chip_hover(self, tag, on):
         if self.click_through:
             return
@@ -218,6 +233,122 @@ class HudWindow(tk.Toplevel):
     def refresh_hotkeys(self):
         self._draw()
 
+    # ------------------------------------------------------------ 通知区
+    def _measure_notice(self, text: str):
+        font = self.f_notice
+        line_h = max(1, font.metrics("linespace"))
+        max_h = line_h * 3
+
+        def _h(t):
+            item = self.canvas.create_text(0, 0, anchor="nw", text=t, font=font,
+                                           width=CARD_W - 36)
+            bb = self.canvas.bbox(item)
+            self.canvas.delete(item)
+            return 0 if not bb else max(0, bb[3] - bb[1])
+
+        h = _h(text)
+        if h > max_h:
+            cut = text
+            while cut and _h(cut + "…") > max_h:
+                cut = cut[:-1]
+            text = (cut.rstrip() + "…") if cut else "…"
+            h = _h(text)
+        return max(36, min(120, h + 20)), text
+
+    def show_notice(self, text: str):
+        text = str(text or "").strip()
+        if not text:
+            return
+        if self._notice_hide_job is not None:
+            try:
+                self.after_cancel(self._notice_hide_job)
+            except Exception:
+                pass
+            self._notice_hide_job = None
+        strip_h, text = self._measure_notice(text)
+        self._notice_text = text
+        self._notice_h = strip_h
+        self._animate_to(CARD_H + strip_h)
+        try:
+            self._notice_hide_job = self.after(3500, self._collapse_notice)
+        except Exception:
+            self._notice_hide_job = None
+
+    def _collapse_notice(self):
+        self._notice_hide_job = None
+        if not self._notice_text:
+            return
+        self._animate_to(CARD_H, done=self._finish_collapse)
+
+    def _finish_collapse(self):
+        self._notice_text = ""
+        self._notice_h = 0
+        self._draw()
+
+    def _cancel_notice(self):
+        for attr in ("_notice_hide_job", "_anim_job"):
+            job = getattr(self, attr, None)
+            setattr(self, attr, None)
+            if job is not None:
+                try:
+                    self.after_cancel(job)
+                except Exception:
+                    pass
+        self._notice_text = ""
+        self._notice_h = 0
+        self._card_h = CARD_H
+
+    def _apply_height(self, h: int):
+        h = max(CARD_H, min(CARD_H + 120, int(h)))
+        self._card_h = h
+        try:
+            self.canvas.configure(height=h)
+            self.bg_canvas.configure(height=h)
+        except Exception:
+            pass
+        try:
+            vx, vy, vw, vh = virtual_screen_rect()
+            x = int(self._anchor_x or self.winfo_x())
+            y = int(self._anchor_y or self.winfo_y())
+            y = max(vy, min(y, vy + vh - h))
+            geo = "%dx%d+%d+%d" % (CARD_W, h, x, y)
+            self.geometry(geo)
+            self.bg.geometry(geo)
+        except Exception:
+            pass
+        self._draw()
+
+    def _animate_to(self, target: int, done=None):
+        job = getattr(self, "_anim_job", None)
+        self._anim_job = None
+        if job is not None:
+            try:
+                self.after_cancel(job)
+            except Exception:
+                pass
+        start = int(self._card_h)
+        target = max(CARD_H, min(CARD_H + 120, int(target)))
+        if start == target:
+            if done:
+                done()
+            return
+        steps = 6
+
+        def step(i):
+            self._anim_job = None
+            if i >= steps:
+                self._apply_height(target)
+                if done:
+                    done()
+                return
+            self._apply_height(start + int(round((target - start) * i / steps)))
+            try:
+                self._anim_job = self.after(18, lambda: step(i + 1))
+            except Exception:
+                self._anim_job = None
+
+        step(1)
+
     def _primary_top_right(self):
         px, py, pw, _ph = primary_work_area()
         return px + pw - CARD_W - 16, py + 16
@@ -233,6 +364,13 @@ class HudWindow(tk.Toplevel):
             x, y = self._primary_top_right()
         x = max(vx, min(x, vx + vw - CARD_W))
         y = max(vy, min(y, vy + vh - CARD_H))
+        self._anchor_x, self._anchor_y = int(x), int(y)
+        self._card_h = CARD_H
+        try:
+            self.canvas.configure(height=CARD_H)
+            self.bg_canvas.configure(height=CARD_H)
+        except Exception:
+            pass
         geo = "%dx%d+%d+%d" % (CARD_W, CARD_H, x, y)
         try:
             self.geometry(geo)
@@ -284,7 +422,7 @@ class HudWindow(tk.Toplevel):
         self._drag = None
         x, y = self.winfo_x(), self.winfo_y()
         vx, vy, vw, vh = virtual_screen_rect()
-        if not rect_visible_enough(x, y, CARD_W, CARD_H):
+        if not rect_visible_enough(x, y, CARD_W, max(CARD_H, self._card_h)):
             x, y = self._primary_top_right()
         if abs(x - vx) < 24:
             x = vx + 8
@@ -292,6 +430,7 @@ class HudWindow(tk.Toplevel):
             x = vx + vw - CARD_W - 8
         if abs(y - vy) < 24:
             y = vy + 8
+        self._anchor_x, self._anchor_y = int(x), int(y)
         try:
             self.geometry("+%d+%d" % (x, y))
             self.bg.geometry("+%d+%d" % (x, y))
@@ -390,6 +529,7 @@ class HudWindow(tk.Toplevel):
 
     def show(self):
         try:
+            self._cancel_notice()
             self.bg.deiconify()
             self.deiconify()
             self._place()
@@ -401,6 +541,7 @@ class HudWindow(tk.Toplevel):
             pass
 
     def hide(self):
+        self._cancel_notice()
         for w in (self, self.bg):
             try:
                 w.withdraw()
