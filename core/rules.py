@@ -26,6 +26,9 @@ class RuleState:
     hit_since: float = 0.0
     miss_since: float = 0.0
     presence_fires: int = 0
+    absence_fires: int = 0
+    ever_present: bool = False
+    last_miss_fire: float = 0.0
     created_at: float = field(default_factory=time.time)
     last_fire: float = 0.0
     score: float = 0.0
@@ -216,13 +219,16 @@ class BackgroundRuleEngine(threading.Thread):
                 if (not st.present and hit and st.hit_since
                         and (now - st.hit_since) * 1000.0 >= present_ms):
                     st.present = True
+                    st.ever_present = True
                     st.presence_fires = 0
+                    st.absence_fires = 0
                     if rid not in member_link:
                         fire_on.append((rule, st))
                 elif (st.present and not hit and st.miss_since
                       and (now - st.miss_since) * 1000.0 >= absent_ms):
                     st.present = False
                     st.presence_fires = 0
+                    st.absence_fires = 0
                     fire_off.append((rule, st))
 
             def can_fire(rule, st):
@@ -299,12 +305,19 @@ class BackgroundRuleEngine(threading.Thread):
                         step = 0
                     self._link_step[lid] = step
 
-            for rule, st in fire_off:
+            for _rid, (rule, st, _hit, _res, ev) in results.items():
+                if (not ev or st.present or not st.ever_present
+                        or not rule.get("enabled", True)):
+                    continue
+                fires = max(0, int(rule.get("fires_per_absence", 1) or 0))
+                if fires and st.absence_fires >= fires:
+                    continue
                 cooldown = max(0, int(rule.get("miss_cooldown_ms",
                                                rule.get("cooldown_ms", 0)) or 0)) / 1000.0
-                if now - st.last_fire < cooldown:
+                if now - st.last_miss_fire < cooldown:
                     continue
-                st.last_fire = now
+                st.last_miss_fire = now
+                st.absence_fires += 1
                 self._fire(rule, rule.get("miss_actions"), (0, 0))
 
             # 组级：所有常驻规则都不存在

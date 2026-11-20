@@ -172,21 +172,25 @@ class ActionDialog(ctk.CTkToplevel):
             self._field("interval_ms", "双击间隔(ms)", a.get("interval_ms", 70), 80)
             self._field("hold_ms", "按住时长(ms)", a.get("hold_ms", 40), 80)
             self._position_fields(a)
+            self._random_fields(a)
         elif t == "long_press":
             self._combo("button", "鼠标键", list(BTN_DISP.keys()),
                         BTN_REV.get(a.get("button", "left"), "左键"))
             self._field("hold_ms", "按住时长(ms)", a.get("hold_ms", 1000), 100)
             self._position_fields(a)
+            self._random_fields(a)
         elif t == "wheel":
             self._combo("direction", "方向", ["向上", "向下"],
                         "向下" if str(a.get("direction", "up")) == "down" else "向上")
             self._field("amount", "滚动格数", a.get("amount", 3), 80)
             self._field("interval_ms", "每格间隔(ms)", a.get("interval_ms", 60), 80)
         elif t == "key":
-            self._field("keys", "按键", a.get("keys", "1"), 180)
+            self.vars["keys"] = tk.StringVar(value=str(a.get("keys", "") or ""))
             krow = ctk.CTkFrame(self.form, fg_color="transparent")
             krow.pack(fill="x", pady=3)
-            label(krow, "采集", 10, theme.MUTED, width=100, anchor="w").pack(side="left")
+            label(krow, "按键", 10, theme.MUTED, width=100, anchor="w").pack(side="left")
+            self._key_result = label(krow, str(a.get("keys", "") or "未采集"), 10, theme.TEXT)
+            self._key_result.pack(side="left", padx=(0, 10))
             ctk.CTkButton(krow, text="采集按键", width=110, height=28,
                           fg_color=theme.ACCENT, text_color="#04121f",
                           font=(theme.FONT, theme.fs(10)),
@@ -239,6 +243,7 @@ class ActionDialog(ctk.CTkToplevel):
             self._field("text", "文本", a.get("text", ""), 260)
         elif t == "move":
             self._position_fields(a)
+            self._random_fields(a)
         elif t == "drag":
             self._combo("button", "鼠标键", list(BTN_DISP.keys()),
                         BTN_REV.get(a.get("button", "left"), "左键"))
@@ -290,6 +295,48 @@ class ActionDialog(ctk.CTkToplevel):
             self._field("offset_x", "偏移 X", self._v("offset_x", off[0]), 80, self.pos_box)
             self._field("offset_y", "偏移 Y", self._v("offset_y", off[1]), 80, self.pos_box)
 
+    def _random_fields(self, a):
+        self._rand_action = a
+        self.random_on_var = tk.BooleanVar(
+            value=bool(int(a.get("random_x", 0) or 0) or int(a.get("random_y", 0) or 0)))
+        row = ctk.CTkFrame(self.form, fg_color="transparent")
+        row.pack(fill="x", pady=3)
+        label(row, "随机偏移", 10, theme.MUTED, width=100, anchor="w").pack(side="left")
+        ctk.CTkSwitch(row, text="", variable=self.random_on_var,
+                      progress_color=theme.ACCENT,
+                      command=self._refresh_random_fields).pack(side="left")
+        self.rand_box = ctk.CTkFrame(self.form, fg_color="transparent")
+        self.rand_box.pack(fill="x")
+        self._refresh_random_fields()
+
+    def _refresh_random_fields(self):
+        a = getattr(self, "_rand_action", {})
+        try:
+            for w in list(self.rand_box.winfo_children()):
+                w.destroy()
+        except Exception:
+            return
+        try:
+            on = bool(self.random_on_var.get())
+        except Exception:
+            on = False
+        if not on:
+            return
+        self._field("random_x", "随机 X（±）",
+                    self._v("random_x", abs(int(a.get("random_x", 0) or 0))), 80, self.rand_box)
+        self._field("random_y", "随机 Y（±）",
+                    self._v("random_y", abs(int(a.get("random_y", 0) or 0))), 80, self.rand_box)
+
+    def _random_dict(self):
+        try:
+            on = bool(self.random_on_var.get())
+        except Exception:
+            on = False
+        if not on:
+            return {"random_x": 0, "random_y": 0}
+        return {"random_x": abs(int(float(self._v("random_x", 0) or 0))),
+                "random_y": abs(int(float(self._v("random_y", 0) or 0)))}
+
     def _v(self, key, default=""):
         v = self.vars.get(key)
         if v is None:
@@ -309,14 +356,15 @@ class ActionDialog(ctk.CTkToplevel):
             out["interval_ms"] = int(float(self._v("interval_ms", 70) or 70))
             out["hold_ms"] = int(float(self._v("hold_ms", 40) or 40))
             out.update(self._pos_dict())
+            out.update(self._random_dict())
         elif t == "long_press":
             out["hold_ms"] = int(float(self._v("hold_ms", 1000) or 1000))
             out.update(self._pos_dict())
+            out.update(self._random_dict())
         elif t == "wheel":
             out["direction"] = "down" if self._v("direction", "向上") == "向下" else "up"
             out["amount"] = max(1, int(float(self._v("amount", 3) or 3)))
             out["interval_ms"] = max(0, int(float(self._v("interval_ms", 60) or 60)))
-            out.update(self._pos_dict())
         elif t == "key":
             out["keys"] = self._v("keys", "")
             out["hold_ms"] = int(float(self._v("hold_ms", 40) or 40))
@@ -340,6 +388,7 @@ class ActionDialog(ctk.CTkToplevel):
             out["text"] = self._v("text", "")
         elif t == "move":
             out.update(self._pos_dict())
+            out.update(self._random_dict())
         elif t == "drag":
             out["to_mode"] = TO_DISP.get(self._v("to_mode", "相对偏移"), "offset")
             val = [int(float(self._v("offset_x", 0) or 0)),
@@ -438,7 +487,15 @@ class ActionDialog(ctk.CTkToplevel):
 
     def _capture_key(self):
         from .key_record_dialog import KeyRecordDialog
-        KeyRecordDialog(self, on_done=lambda combo: self.vars["keys"].set(combo))
+
+        def done(combo):
+            self.vars["keys"].set(combo or "")
+            try:
+                self._key_result.configure(text=combo or "未采集")
+            except Exception:
+                pass
+
+        KeyRecordDialog(self, on_done=done)
 
     def _pick_drag_end(self):
         self._pick_with_minimize(self._on_drag_point)
@@ -545,20 +602,13 @@ class RuleDialog(ctk.CTkToplevel):
         e_absent = entry(grid, width=80, textvariable=self.absent_ms_var)
         e_absent.grid(row=2, column=3, sticky="w", padx=(6, 10))
         Tooltip(e_absent, "连续消失超过该时长才算消失（ms）；用于忽略短暂遮挡")
-        label(grid, "轮询ms", 9, theme.MUTED).grid(row=2, column=5, sticky="w", padx=(20, 0))
+        label(grid, "轮询ms", 9, theme.MUTED).grid(row=2, column=4, sticky="w")
         self.poll_var = tk.StringVar(value=str(self.rule.get("poll_ms", 0)))
         e_poll = entry(grid, width=70, textvariable=self.poll_var)
-        e_poll.grid(row=2, column=6, sticky="w", padx=6)
+        e_poll.grid(row=2, column=5, sticky="w", padx=6)
         Tooltip(e_poll, "该规则的检测间隔（ms）；0=跟随场景")
-        label(grid, "0=跟随场景", 9).grid(row=2, column=7, sticky="w")
+        label(grid, "0=跟随场景", 9).grid(row=2, column=6, sticky="w")
 
-        label(grid, "每次出现执行次数", 9, theme.MUTED).grid(row=3, column=0, sticky="w", pady=(8, 2))
-        self.fires_var = tk.StringVar(value=str(self.rule.get("fires_per_present", 1)))
-        e_fires = entry(grid, width=80, textvariable=self.fires_var)
-        e_fires.grid(row=3, column=1, sticky="w", padx=(6, 20), pady=(8, 2))
-        Tooltip(e_fires, "每次出现执行次数：0=不限制，1=只执行一次，N=最多 N 次")
-        label(grid, "0=不限制  1=只执行一次  N=最多N次", 9).grid(
-            row=3, column=2, columnspan=2, sticky="w", pady=(8, 2))
         self.enabled_var = tk.BooleanVar(value=bool(self.rule.get("enabled", True)))
         self.enabled_switch = ctk.CTkSwitch(grid, text="启用该规则", variable=self.enabled_var,
                                             font=(theme.FONT, theme.fs(9)),
@@ -627,33 +677,47 @@ class RuleDialog(ctk.CTkToplevel):
               9, theme.MUTED, anchor="w", justify="left", wraplength=820).pack(
             anchor="w", padx=14, pady=(0, 4))
         self.tpl_box = ctk.CTkScrollableFrame(top, fg_color=theme.BG2, corner_radius=8,
-                                              height=82)
+                                              height=132)
         self.tpl_box.pack(fill="x", padx=14, pady=(0, 10))
         self._refresh_templates()
 
-        act_card = Card(self.scroll, "命中动作", "图标命中时按顺序执行")
-        act_card.pack(fill="x", padx=16, pady=(0, 8))
+        acts_row = ctk.CTkFrame(self.scroll, fg_color="transparent")
+        acts_row.pack(fill="x", padx=16, pady=(0, 8))
+        acts_row.grid_columnconfigure(0, weight=1, uniform="acts")
+        acts_row.grid_columnconfigure(1, weight=1, uniform="acts")
+
+        act_card = Card(acts_row, "命中动作", "图标命中时按顺序执行")
+        act_card.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
         bar = ctk.CTkFrame(act_card.body, fg_color="transparent")
         bar.pack(fill="x", pady=(0, 6))
-        ctk.CTkButton(bar, text="添加动作", width=96, height=28, fg_color=theme.ACCENT,
+        ctk.CTkButton(bar, text="添加动作", width=90, height=28, fg_color=theme.ACCENT,
                       text_color="#04121f", font=(theme.FONT, theme.fs(10)),
                       command=self._add_action).pack(side="left")
-        label(bar, "动作类型在弹窗中选择", 9).pack(side="left", padx=8)
+        label(bar, "次数", 9).pack(side="left", padx=(8, 2))
+        self.fires_var = tk.StringVar(value=str(self.rule.get("fires_per_present", 1)))
+        e_fires = entry(bar, width=44, textvariable=self.fires_var)
+        e_fires.pack(side="left")
+        Tooltip(e_fires, "每次出现执行次数：0=不限制，1=一次，N=最多N次")
         self.actions_scroll = ctk.CTkScrollableFrame(act_card.body, fg_color=theme.BG2,
                                                      corner_radius=8, height=190)
-        self.actions_scroll.pack(fill="x", expand=True)
+        self.actions_scroll.pack(fill="both", expand=True)
         self._refresh_actions()
 
-        miss_card = Card(self.scroll, "消失动作", "图标消失时按顺序执行")
-        miss_card.pack(fill="x", padx=16, pady=(0, 8))
+        miss_card = Card(acts_row, "消失动作", "图标消失时按顺序执行")
+        miss_card.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
         mbar = ctk.CTkFrame(miss_card.body, fg_color="transparent")
         mbar.pack(fill="x", pady=(0, 6))
         ctk.CTkButton(mbar, text="添加消失动作", width=110, height=28, fg_color=theme.PURPLE,
                       text_color="white", font=(theme.FONT, theme.fs(10)),
                       command=self._add_miss_action).pack(side="left")
+        label(mbar, "次数", 9).pack(side="left", padx=(8, 2))
+        self.miss_fires_var = tk.StringVar(value=str(self.rule.get("fires_per_absence", 1)))
+        e_mfires = entry(mbar, width=44, textvariable=self.miss_fires_var)
+        e_mfires.pack(side="left")
+        Tooltip(e_mfires, "每次消失执行次数：0=不限制，1=一次，N=最多N次")
         self.miss_scroll = ctk.CTkScrollableFrame(miss_card.body, fg_color=theme.BG2,
-                                                   corner_radius=8, height=120)
-        self.miss_scroll.pack(fill="x", expand=True)
+                                                   corner_radius=8, height=190)
+        self.miss_scroll.pack(fill="both", expand=True)
         self._refresh_miss_actions()
 
         bottom = ctk.CTkFrame(self, fg_color="transparent")
@@ -765,22 +829,23 @@ class RuleDialog(ctk.CTkToplevel):
         else:
             imgs = []
             for i, t in enumerate(self.templates):
-                row = ctk.CTkFrame(self.tpl_box, fg_color="transparent")
-                row.pack(fill="x", pady=1)
+                cell = ctk.CTkFrame(self.tpl_box, fg_color=theme.CARD, corner_radius=8)
+                cell.grid(row=i // 5, column=i % 5, padx=5, pady=5, sticky="n")
                 img = load_image(t)
                 if img is not None:
                     pil = to_ctk_image(img)
-                    pil.thumbnail((30, 30), Image.LANCZOS)
+                    pil.thumbnail((64, 64), Image.LANCZOS)
                     ci = ctk.CTkImage(light_image=pil, dark_image=pil, size=pil.size)
                     imgs.append(ci)
-                    ctk.CTkLabel(row, text="", image=ci, width=34).pack(side="left", padx=4)
-                label(row, "%d. %s" % (i + 1, Path(t).name), 9, theme.TEXT,
-                      anchor="w").pack(side="left", fill="x", expand=True, padx=6)
-                ctk.CTkButton(row, text="删除", width=44, height=22,
+                    ctk.CTkLabel(cell, text="", image=ci, width=68, height=68).pack(
+                        padx=6, pady=(6, 2))
+                label(cell, Path(t).stem[:10], 8, theme.TEXT, anchor="center",
+                      width=76).pack(padx=2)
+                ctk.CTkButton(cell, text="删除", width=76, height=22,
                               fg_color=theme.DANGER, text_color="white",
-                              font=(theme.FONT, theme.fs(9)),
+                              font=(theme.FONT, theme.fs(8)),
                               command=lambda idx=i: self._remove_template(idx)).pack(
-                    side="right", padx=4)
+                    padx=6, pady=(2, 6))
             self._tpl_imgs = imgs
         try:
             self.tpl_label.configure(
@@ -985,6 +1050,7 @@ class RuleDialog(ctk.CTkToplevel):
         r["present_ms"] = max(0, int(float(self.present_ms_var.get() or 0)))
         r["absent_ms"] = max(0, int(float(self.absent_ms_var.get() or 0)))
         r["fires_per_present"] = max(0, int(float(self.fires_var.get() or 0)))
+        r["fires_per_absence"] = max(0, int(float(self.miss_fires_var.get() or 0)))
         r["poll_ms"] = max(0, int(float(self.poll_var.get() or 0)))
         r["enabled"] = bool(self.enabled_var.get())
         r["templates"] = list(self.templates)

@@ -26,6 +26,7 @@ DEFAULTS_RULE = {
     "absent_ms": 600,
     "poll_ms": 0,
     "fires_per_present": 1,
+    "fires_per_absence": 1,
     "group": "",
     "recheck": True,
     "resident": False,
@@ -116,6 +117,7 @@ def normalize_rule(d: dict, idx: int = 0) -> dict:
     else:
         fires = 1
     out["fires_per_present"] = max(0, fires)
+    out["fires_per_absence"] = max(0, _i(d.get("fires_per_absence", 1), 1))
     out["group"] = str(d.get("group", "") or "")
     out["recheck"] = bool(d.get("recheck", True))
     out["enabled"] = bool(d.get("enabled", True))
