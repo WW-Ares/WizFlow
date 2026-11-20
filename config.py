@@ -48,6 +48,7 @@ DEFAULTS = {
     "speed": 1.0,
     "vdisplay": False,
     "vdisplay_parsec": False,
+    "pause_rules_on_play": False,
     "hud": {"enabled": True, "x": 0, "y": 0, "saved": False,
             "alpha": 1.0, "click_through": False},
     "keep_awake": True,

@@ -20,7 +20,7 @@ from .icon_crop_dialog import IconCropDialog
 from .point_picker import PointPicker
 from .area_select_dialog import AreaSelectDialog
 from .window_icon import apply_window_icon
-from .widgets import Card, center_window, entry, label
+from .widgets import Card, Tooltip, center_window, entry, label
 
 ACTION_TYPES = [
     ("click", "单击 / 双击 / 长按"),
@@ -56,6 +56,19 @@ TARGET_DISP = {"当前脚本": "current", "指定脚本": "script"}
 TARGET_REV = {v: k for k, v in TARGET_DISP.items()}
 BUSY_DISP = {"切换": "switch", "忽略": "ignore"}
 BUSY_REV = {v: k for k, v in BUSY_DISP.items()}
+
+
+FIELD_TIPS = {
+    "hold_ms": "按住时长（ms）",
+    "interval_ms": "多次执行之间的间隔（ms）",
+    "amount": "滚轮滚动格数",
+    "delay_ms": "动作前延迟（ms）",
+    "clicks": "点击次数",
+    "ms": "等待时长（ms）",
+    "text": "要输入或通知的文本",
+    "anchor_x": "脚本锚点 X 坐标",
+    "anchor_y": "脚本锚点 Y 坐标",
+}
 
 
 class ActionDialog(ctk.CTkToplevel):
@@ -110,7 +123,9 @@ class ActionDialog(ctk.CTkToplevel):
         row.pack(fill="x", pady=3)
         label(row, text, 10, theme.MUTED, width=100, anchor="w").pack(side="left")
         var = tk.StringVar(value=str(default))
-        entry(row, width=width, textvariable=var).pack(side="left")
+        e = entry(row, width=width, textvariable=var)
+        e.pack(side="left")
+        Tooltip(e, FIELD_TIPS.get(key, text))
         self.vars[key] = var
         return var
 
@@ -119,15 +134,19 @@ class ActionDialog(ctk.CTkToplevel):
         row.pack(fill="x", pady=3)
         label(row, text, 10, theme.MUTED, width=100, anchor="w").pack(side="left")
         var = tk.StringVar(value=str(default))
-        ctk.CTkOptionMenu(row, variable=var, values=values, width=180, height=28,
-                          fg_color=theme.CARD2, button_color=theme.LINE).pack(side="left")
+        m = ctk.CTkOptionMenu(row, variable=var, values=values, width=180, height=28,
+                              fg_color=theme.CARD2, button_color=theme.LINE)
+        m.pack(side="left")
+        Tooltip(m, FIELD_TIPS.get(key, text))
         self.vars[key] = var
         return var
 
     def _switch(self, key, text, default):
         var = tk.BooleanVar(value=bool(default))
-        ctk.CTkSwitch(self.form, text=text, variable=var, font=(theme.FONT, theme.fs(10)),
-                      progress_color=theme.ACCENT).pack(anchor="w", pady=4)
+        sw = ctk.CTkSwitch(self.form, text=text, variable=var, font=(theme.FONT, theme.fs(10)),
+                           progress_color=theme.ACCENT)
+        sw.pack(anchor="w", pady=4)
+        Tooltip(sw, FIELD_TIPS.get(key, text))
         self.vars[key] = var
         return var
 
@@ -441,38 +460,45 @@ class RuleDialog(ctk.CTkToplevel):
                                               command=lambda _v: self.th_label.configure(
                                                   text="%.2f" % self.threshold_var.get()))
         self.threshold_slider.pack(side="left")
+        Tooltip(self.threshold_slider, "相似度阈值：越高越严格，常用 0.85–0.95")
         self.th_label = ctk.CTkLabel(th, text="%.2f" % self.threshold_var.get(), width=42,
                                      font=(theme.MONO, theme.fs(10)), text_color=theme.ACCENT)
         self.th_label.pack(side="left", padx=6)
 
         label(grid, "命中冷却(ms)", 9, theme.MUTED).grid(row=1, column=2, sticky="w")
         self.cooldown_var = tk.StringVar(value=str(self.rule.get("cooldown_ms", 1000)))
-        entry(grid, width=80, textvariable=self.cooldown_var).grid(
-            row=1, column=3, sticky="w", padx=(6, 18))
+        e_hit_cd = entry(grid, width=80, textvariable=self.cooldown_var)
+        e_hit_cd.grid(row=1, column=3, sticky="w", padx=(6, 18))
+        Tooltip(e_hit_cd, "命中冷却：两次命中动作之间的最小间隔")
         label(grid, "消失冷却(ms)", 9, theme.MUTED).grid(row=1, column=4, sticky="w")
         self.miss_cooldown_var = tk.StringVar(
             value=str(self.rule.get("miss_cooldown_ms", self.rule.get("cooldown_ms", 1000))))
-        entry(grid, width=80, textvariable=self.miss_cooldown_var).grid(
-            row=1, column=5, sticky="w", padx=(6, 10))
+        e_miss_cd = entry(grid, width=80, textvariable=self.miss_cooldown_var)
+        e_miss_cd.grid(row=1, column=5, sticky="w", padx=(6, 10))
+        Tooltip(e_miss_cd, "消失冷却：两次消失动作之间的最小间隔")
 
         label(grid, "持续时间(ms)", 9, theme.MUTED).grid(row=2, column=0, sticky="w", pady=3)
         self.present_ms_var = tk.StringVar(value=str(self.rule.get("present_ms", 300)))
-        entry(grid, width=80, textvariable=self.present_ms_var).grid(
-            row=2, column=1, sticky="w", padx=(6, 28))
+        e_present = entry(grid, width=80, textvariable=self.present_ms_var)
+        e_present.grid(row=2, column=1, sticky="w", padx=(6, 28))
+        Tooltip(e_present, "连续命中超过该时长才算出现（ms）")
         label(grid, "消失时间(ms)", 9, theme.MUTED).grid(row=2, column=2, sticky="w")
         self.absent_ms_var = tk.StringVar(value=str(self.rule.get("absent_ms", 600)))
-        entry(grid, width=80, textvariable=self.absent_ms_var).grid(
-            row=2, column=3, sticky="w", padx=(6, 10))
+        e_absent = entry(grid, width=80, textvariable=self.absent_ms_var)
+        e_absent.grid(row=2, column=3, sticky="w", padx=(6, 10))
+        Tooltip(e_absent, "连续消失超过该时长才算消失（ms）；用于忽略短暂遮挡")
         label(grid, "轮询ms", 9, theme.MUTED).grid(row=2, column=5, sticky="w", padx=(20, 0))
         self.poll_var = tk.StringVar(value=str(self.rule.get("poll_ms", 0)))
-        entry(grid, width=70, textvariable=self.poll_var).grid(
-            row=2, column=6, sticky="w", padx=6)
+        e_poll = entry(grid, width=70, textvariable=self.poll_var)
+        e_poll.grid(row=2, column=6, sticky="w", padx=6)
+        Tooltip(e_poll, "该规则的检测间隔（ms）；0=跟随场景")
         label(grid, "0=跟随场景", 9).grid(row=2, column=7, sticky="w")
 
         label(grid, "每次出现执行次数", 9, theme.MUTED).grid(row=3, column=0, sticky="w", pady=(8, 2))
         self.fires_var = tk.StringVar(value=str(self.rule.get("fires_per_present", 1)))
-        entry(grid, width=80, textvariable=self.fires_var).grid(
-            row=3, column=1, sticky="w", padx=(6, 20), pady=(8, 2))
+        e_fires = entry(grid, width=80, textvariable=self.fires_var)
+        e_fires.grid(row=3, column=1, sticky="w", padx=(6, 20), pady=(8, 2))
+        Tooltip(e_fires, "每次出现执行次数：0=不限制，1=只执行一次，N=最多 N 次")
         label(grid, "0=不限制  1=只执行一次  N=最多N次", 9).grid(
             row=3, column=2, columnspan=2, sticky="w", pady=(8, 2))
         self.enabled_var = tk.BooleanVar(value=bool(self.rule.get("enabled", True)))
@@ -496,11 +522,12 @@ class RuleDialog(ctk.CTkToplevel):
                          if l.get("id") == cur_group), "（独立）")
         self.group_var = tk.StringVar(value=cur_name)
         names = ["（独立）"] + [l.get("name", l.get("id", "")) for l in self.links]
-        ctk.CTkOptionMenu(grid, variable=self.group_var, values=names, width=200, height=28,
-                          fg_color=theme.CARD2, button_color=theme.LINE,
-                          font=(theme.FONT, theme.fs(10)),
-                          dropdown_font=(theme.FONT, theme.fs(10))).grid(
-            row=4, column=1, columnspan=2, sticky="w", padx=(6, 0), pady=(6, 3))
+        gm = ctk.CTkOptionMenu(grid, variable=self.group_var, values=names, width=200, height=28,
+                               fg_color=theme.CARD2, button_color=theme.LINE,
+                               font=(theme.FONT, theme.fs(10)),
+                               dropdown_font=(theme.FONT, theme.fs(10)))
+        gm.grid(row=4, column=1, columnspan=2, sticky="w", padx=(6, 0), pady=(6, 3))
+        Tooltip(gm, "加入关联组后按组策略（互斥/全部/顺序）触发")
 
         label(grid, "二级搜索范围", 9, theme.MUTED).grid(
             row=5, column=0, sticky="w", pady=(6, 3))
@@ -512,11 +539,13 @@ class RuleDialog(ctk.CTkToplevel):
                                          hover_color="#0ea5e9", font=(theme.FONT, theme.fs(9)),
                                          command=self._clear_roi)
         self.btn_roi_all.pack(side="left")
+        Tooltip(self.btn_roi_all, "默认：在整个监控区域内搜索")
         self.btn_roi_pick = ctk.CTkButton(roi_btn, text="框选二级范围", width=118, height=28,
                                           fg_color="transparent", text_color=theme.TEXT,
                                           hover_color=theme.CARD2, font=(theme.FONT, theme.fs(9)),
                                           command=self._select_roi)
         self.btn_roi_pick.pack(side="left", padx=8)
+        Tooltip(self.btn_roi_pick, "只在框选的二级范围内搜索")
         self.roi_label = label(grid, "", 9, theme.MUTED, anchor="w")
         self.roi_label.grid(row=5, column=3, columnspan=4, sticky="w", padx=(16, 0))
         self._refresh_roi_label()

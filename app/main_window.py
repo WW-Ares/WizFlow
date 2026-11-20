@@ -294,6 +294,15 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             pass
         log(msg, level.upper())
 
+    def _sync_rule_engine_pause(self):
+        try:
+            if bool(self.cfg.get("pause_rules_on_play", False)) and self.player.running:
+                self.rules_engine.pause()
+            else:
+                self.rules_engine.resume()
+        except Exception:
+            pass
+
     def _notify_user(self, text: str):
         text = str(text or "规则通知")
         self._toast(text, "info")

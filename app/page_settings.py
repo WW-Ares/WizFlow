@@ -10,7 +10,7 @@ import customtkinter as ctk
 from config import CONFIG_FILE, ICONS_DIR, LOGS_DIR, ROOT
 from core.hotkeys import hotkey_conflicts, normalize_hotkey
 from . import theme
-from .widgets import Card, KeyCaptureEntry, label
+from .widgets import Card, KeyCaptureEntry, Tooltip, label
 
 
 class SettingsPageMixin:
@@ -20,7 +20,7 @@ class SettingsPageMixin:
         page.grid_columnconfigure(0, weight=1)
 
         toprow = ctk.CTkFrame(page, fg_color="transparent")
-        toprow.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        toprow.grid(row=0, column=0, sticky="ew", pady=(0, 4))
         toprow.grid_columnconfigure(0, weight=1, uniform="top")
         toprow.grid_columnconfigure(1, weight=1, uniform="top")
 
@@ -30,7 +30,7 @@ class SettingsPageMixin:
         self.hk_entries = {}
         for key, text in (("start_pause", "启动 / 暂停"), ("stop", "停止"), ("record", "录制")):
             row = ctk.CTkFrame(hk.body, fg_color="transparent")
-            row.pack(fill="x", pady=3)
+            row.pack(fill="x", pady=2)
             label(row, text, 11, theme.TEXT, width=100, anchor="w").pack(side="left")
             var = tk.StringVar(
                 value=str(self.cfg.get("hotkeys.%s" % key, "F6")).strip().upper())
@@ -38,11 +38,20 @@ class SettingsPageMixin:
             ent = KeyCaptureEntry(row, var, width=120,
                                   on_change=lambda _v: self._check_hotkey_dup())
             ent.pack(side="left", padx=8)
+            Tooltip(ent, "点击后按下组合键；支持 Ctrl / Alt / Shift / Win")
             self.hk_entries[key] = ent
         self._btn(hk.body, "应用热键", self._apply_hotkeys, width=96, color=theme.ACCENT,
-                  text_color="#04121f").pack(anchor="w", pady=(10, 0))
+                  text_color="#04121f").pack(anchor="w", pady=(8, 0))
         self.hk_hint = label(hk.body, "热键被占用时会提示；修改后需点应用。", 9)
-        self.hk_hint.pack(anchor="w", pady=(6, 0))
+        self.hk_hint.pack(anchor="w", pady=(4, 0))
+        self.pause_rules_var = tk.BooleanVar(
+            value=bool(self.cfg.get("pause_rules_on_play", False)))
+        sw_pause = ctk.CTkSwitch(hk.body, text="回放期间暂停后台常驻规则",
+                                 variable=self.pause_rules_var, font=(theme.FONT, theme.fs(9)),
+                                 progress_color=theme.ACCENT,
+                                 command=self._toggle_pause_rules)
+        sw_pause.pack(anchor="w", pady=(4, 0))
+        Tooltip(sw_pause, "开启后脚本回放期间暂停后台常驻规则，避免双触发")
 
         paths = Card(toprow, "路径与工具", "常用位置一键打开")
         paths.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
@@ -71,7 +80,7 @@ class SettingsPageMixin:
                      padx=3, pady=3)
 
         keep = ctk.CTkFrame(page, fg_color="transparent")
-        keep.grid(row=1, column=0, sticky="ew", pady=8)
+        keep.grid(row=1, column=0, sticky="ew", pady=4)
         keep.grid_columnconfigure(0, weight=1, uniform="keep")
         keep.grid_columnconfigure(1, weight=1, uniform="keep")
 
@@ -113,7 +122,7 @@ class SettingsPageMixin:
         label(vd.body, "组策略强制锁屏时无法绕过。", 9).pack(anchor="w")
 
         about = Card(page, "关于 WizFlow", "项目介绍")
-        about.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        about.grid(row=2, column=0, sticky="ew", pady=(2, 0))
         body = ctk.CTkFrame(about.body, fg_color="transparent")
         body.pack(fill="x")
         texts = ctk.CTkFrame(body, fg_color=theme.BG2, corner_radius=8)
@@ -137,6 +146,11 @@ class SettingsPageMixin:
             webbrowser.open("https://github.com/WW-Ares/WizFlow")
         except Exception as exc:
             self._toast("打开项目主页失败：%s" % exc, "warn")
+
+    def _toggle_pause_rules(self):
+        self.cfg.set("pause_rules_on_play", bool(self.pause_rules_var.get()))
+        self.cfg.save()
+        self._sync_rule_engine_pause()
 
     def _check_hotkey_dup(self):
         names = {"start_pause": "启动/暂停", "stop": "停止", "record": "录制"}

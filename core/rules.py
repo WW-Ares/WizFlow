@@ -45,6 +45,7 @@ class BackgroundRuleEngine(threading.Thread):
         self.on_action = on_action
         self.matcher = TemplateMatcher()
         self._stop = threading.Event()
+        self._paused = threading.Event()
         self._states: dict[str, RuleState] = {}
         self._source = None
         self._source_key = None
@@ -55,6 +56,16 @@ class BackgroundRuleEngine(threading.Thread):
         self._link_step = {}
         self.enabled = False
         self.grab_ms = 0.0
+
+    def pause(self) -> None:
+        self._paused.set()
+
+    def resume(self) -> None:
+        self._paused.clear()
+
+    @property
+    def paused(self) -> bool:
+        return self._paused.is_set()
 
     def stop(self) -> None:
         self._stop.set()
@@ -100,6 +111,10 @@ class BackgroundRuleEngine(threading.Thread):
 
     def run(self) -> None:
         while not self._stop.is_set():
+            if self._paused.is_set():
+                self._close_source()
+                self._stop.wait(0.2)
+                continue
             cfg = self.config_provider() or {}
             group = normalize_monitor_group(cfg.get("multi_monitor") or {})
             region = [int(v) for v in (group.get("region") or [0, 0, 0, 0])]

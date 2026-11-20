@@ -19,7 +19,7 @@ from core.hotkeys import parse_hotkey
 from core.log import log
 from core.script import ScriptDoc, describe_event, list_scripts, new_script_path
 from .event_editor import EventEditorDialog
-from .widgets import Card, entry, label
+from .widgets import Card, Tooltip, entry, label
 
 
 DRAFT_FILE = LOGS_DIR / "draft_autosave.json"
@@ -82,6 +82,7 @@ class RecordPageMixin:
         e = entry(row, width=62, textvariable=self.traj_ms_var)
         e.pack(side="left", padx=6)
         e.bind("<FocusOut>", lambda _e: self._on_traj_change())
+        Tooltip(e, "录制鼠标轨迹的采样间隔，越小越密集")
         label(row, "ms（越小越密集）", 9).pack(side="left")
 
         play = Card(cards, "回放", "脚本执行 / 监控节点")
@@ -90,7 +91,9 @@ class RecordPageMixin:
         head.pack(fill="x")
         label(head, "循环次数", 10).pack(side="left")
         self.loop_var = tk.StringVar(value=str(self.cfg.get("loop_count", 1)))
-        entry(head, width=54, textvariable=self.loop_var).pack(side="left", padx=(6, 14))
+        e_loop = entry(head, width=54, textvariable=self.loop_var)
+        e_loop.pack(side="left", padx=(6, 14))
+        Tooltip(e_loop, "循环次数：0=无限循环")
         label(head, "速度", 10).pack(side="left")
         self.speed_var = tk.StringVar(value="1x")
         self.speed_menu = ctk.CTkOptionMenu(head, variable=self.speed_var,
@@ -99,6 +102,7 @@ class RecordPageMixin:
                                             button_color=theme.LINE, font=(theme.MONO, theme.fs(10)),
                                             command=self._on_speed_change)
         self.speed_menu.pack(side="left", padx=6)
+        Tooltip(self.speed_menu, "回放速度倍率；自定义可输入任意倍率")
         label(head, "0 = 无限循环", 9).pack(side="left", padx=(10, 0))
 
         btns = ctk.CTkFrame(play.body, fg_color="transparent")
@@ -727,6 +731,7 @@ class RecordPageMixin:
         script_dir = self.script_path.parent if self.script_path else SCRIPTS_DIR
         self.player.current_script = self.script_path
         if self.player.start(self.events, loops, speed, script_dir=script_dir):
+            self._sync_rule_engine_pause()
             self._refresh_hotkey_button_text()
             self._set_header("回放中", theme.ACCENT)
             self._append_play_log("启动：%d 个事件，循环 %s，速度 %.2fx"
@@ -850,6 +855,7 @@ class RecordPageMixin:
                 self._set_header("已停止", theme.WARN)
 
     def _apply_player_done(self, reason: str):
+        self._sync_rule_engine_pause()
         self.player.current_script = self.script_path
         self._refresh_hotkey_button_text()
         self._set_header("空闲", theme.OK)
