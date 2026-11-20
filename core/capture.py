@@ -250,6 +250,7 @@ class WindowWGCSource(CaptureSource):
     mode = "window"
 
     def __init__(self, hwnd: int, fps: int = 30):
+        self._last_ts = 0.0
         if _WindowsCapture is None:
             raise CaptureError("windows-capture 未安装或加载失败")
         self.hwnd = int(hwnd)
@@ -263,6 +264,7 @@ class WindowWGCSource(CaptureSource):
         @self._cap.event
         def on_frame_arrived(frame, control):
             try:
+                self._last_ts = time.time()
                 arr = frame.frame_buffer[:, :, :3]
                 with self._lock:
                     self._frame = np.ascontiguousarray(arr).copy()
@@ -294,6 +296,10 @@ class WindowWGCSource(CaptureSource):
     def grab(self, rect) -> np.ndarray:
         with self._lock:
             frame = self._frame
+        if u32.IsIconic(self.hwnd):
+            raise CaptureError("窗口已最小化，无法抓取画面")
+        if frame is not None and time.time() - self._last_ts > 3.0:
+            raise CaptureError("窗口画面已停止更新（可能已最小化或被系统挂起）")
         if frame is None:
             deadline = time.time() + 1.5
             while time.time() < deadline:
@@ -354,6 +360,8 @@ class WindowGDISource(CaptureSource):
         return bool(u32.IsWindow(self.hwnd))
 
     def _capture_client(self) -> np.ndarray:
+        if u32.IsIconic(self.hwnd):
+            raise CaptureError("窗口已最小化，无法抓取画面")
         crect = client_rect_screen(self.hwnd)
         orect = window_outer_rect(self.hwnd)
         if crect is None or orect is None:

@@ -441,15 +441,19 @@ class RuleDialog(ctk.CTkToplevel):
                                      font=(theme.MONO, theme.fs(10)), text_color=theme.ACCENT)
         self.th_label.pack(side="left", padx=6)
 
-        label(grid, "冷却(ms)", 9, theme.MUTED).grid(row=1, column=2, sticky="w")
+        label(grid, "命中冷却(ms)", 9, theme.MUTED).grid(row=1, column=2, sticky="w")
         self.cooldown_var = tk.StringVar(value=str(self.rule.get("cooldown_ms", 1000)))
         entry(grid, width=80, textvariable=self.cooldown_var).grid(
-            row=1, column=3, sticky="w", padx=(6, 10))
-        label(grid, "两次命中间隔", 9).grid(row=1, column=4, sticky="w")
+            row=1, column=3, sticky="w", padx=(6, 18))
+        label(grid, "消失冷却(ms)", 9, theme.MUTED).grid(row=1, column=4, sticky="w")
+        self.miss_cooldown_var = tk.StringVar(
+            value=str(self.rule.get("miss_cooldown_ms", self.rule.get("cooldown_ms", 1000))))
+        entry(grid, width=80, textvariable=self.miss_cooldown_var).grid(
+            row=1, column=5, sticky="w", padx=(6, 10))
 
-        label(grid, "稳定帧", 9, theme.MUTED).grid(row=2, column=0, sticky="w", pady=3)
-        self.stable_var = tk.StringVar(value=str(self.rule.get("stable_frames", 1)))
-        entry(grid, width=80, textvariable=self.stable_var).grid(
+        label(grid, "持续时间(ms)", 9, theme.MUTED).grid(row=2, column=0, sticky="w", pady=3)
+        self.present_ms_var = tk.StringVar(value=str(self.rule.get("present_ms", 300)))
+        entry(grid, width=80, textvariable=self.present_ms_var).grid(
             row=2, column=1, sticky="w", padx=(6, 28))
         label(grid, "最大次数", 9, theme.MUTED).grid(row=2, column=2, sticky="w")
         self.max_var = tk.StringVar(value=str(self.rule.get("max_triggers", 0)))
@@ -462,23 +466,27 @@ class RuleDialog(ctk.CTkToplevel):
             row=2, column=6, sticky="w", padx=6)
         label(grid, "0=跟随场景", 9).grid(row=2, column=7, sticky="w")
 
+        label(grid, "消失时间(ms)", 9, theme.MUTED).grid(row=3, column=0, sticky="w", pady=(8, 2))
+        self.absent_ms_var = tk.StringVar(value=str(self.rule.get("absent_ms", 600)))
+        entry(grid, width=80, textvariable=self.absent_ms_var).grid(
+            row=3, column=1, sticky="w", padx=(6, 28), pady=(8, 2))
         self.absence_var = tk.BooleanVar(value=bool(self.rule.get("require_absence", True)))
         ctk.CTkSwitch(grid, text="只在图标从无到有时触发", variable=self.absence_var,
                       font=(theme.FONT, theme.fs(9)), progress_color=theme.ACCENT).grid(
-            row=3, column=0, columnspan=3, sticky="w", pady=(10, 2))
+            row=3, column=2, columnspan=2, sticky="w", pady=(8, 2))
         self.enabled_var = tk.BooleanVar(value=bool(self.rule.get("enabled", True)))
         self.enabled_switch = ctk.CTkSwitch(grid, text="启用该规则", variable=self.enabled_var,
                                             font=(theme.FONT, theme.fs(9)),
                                             progress_color=theme.OK,
                                             command=self._on_enabled_switch)
-        self.enabled_switch.grid(row=3, column=3, sticky="w", pady=(10, 2))
+        self.enabled_switch.grid(row=3, column=4, sticky="w", pady=(8, 2))
         self.resident_var = tk.BooleanVar(value=bool(self.rule.get("resident", False)))
         self.resident_switch = ctk.CTkSwitch(grid, text="常驻监控", variable=self.resident_var,
                                              font=(theme.FONT, theme.fs(9)),
                                              progress_color=theme.ACCENT,
                                              command=self._on_resident_switch)
-        self.resident_switch.grid(row=3, column=4, columnspan=2, sticky="w",
-                                  padx=(28, 0), pady=(10, 2))
+        self.resident_switch.grid(row=3, column=5, columnspan=2, sticky="w",
+                                  padx=(28, 0), pady=(8, 2))
         self._apply_switch_link()
 
         label(grid, "关联组", 9, theme.MUTED).grid(row=4, column=0, sticky="w", pady=(6, 3))
@@ -787,7 +795,9 @@ class RuleDialog(ctk.CTkToplevel):
         r["priority"] = int(float(self.priority_var.get() or 50))
         r["threshold"] = float(self.threshold_var.get())
         r["cooldown_ms"] = max(0, int(float(self.cooldown_var.get() or 0)))
-        r["stable_frames"] = max(1, int(float(self.stable_var.get() or 1)))
+        r["miss_cooldown_ms"] = max(0, int(float(self.miss_cooldown_var.get() or 0)))
+        r["present_ms"] = max(0, int(float(self.present_ms_var.get() or 0)))
+        r["absent_ms"] = max(0, int(float(self.absent_ms_var.get() or 0)))
         r["max_triggers"] = max(0, int(float(self.max_var.get() or 0)))
         r["poll_ms"] = max(0, int(float(self.poll_var.get() or 0)))
         r["require_absence"] = bool(self.absence_var.get())

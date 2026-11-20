@@ -462,7 +462,7 @@ def test_supervisor_edges():
     actions = []
     cfg = {
         "enabled": True, "template": str(tpl_path), "threshold": 0.9,
-        "poll_ms": 10, "stable_frames": 2, "cooldown_ms": 0,
+        "poll_ms": 10, "present_ms": 0, "absent_ms": 0, "cooldown_ms": 0,
         "appear": "pause", "disappear": "resume", "run_script": "",
         "region": [0, 0, 200, 150], "capture_mode": "screen",
         "window_hwnd": 0, "window_title": "", "window_class": "",
@@ -581,13 +581,13 @@ def test_background_rules():
             "rules": [
                 {"id": "A", "name": "A", "enabled": True, "resident": True, "priority": 90,
                  "template": str(tpl_path), "threshold": 0.9, "roi": [],
-                 "stable_frames": 1, "cooldown_ms": 0,
+                 "present_ms": 0, "absent_ms": 0, "cooldown_ms": 0,
                  "actions": [{"type": "script", "op": "run", "target": "script",
                               "path": str(tmp / "s1.json"), "busy": "switch"}],
                  "miss_actions": []},
                 {"id": "B", "name": "B", "enabled": True, "resident": True, "priority": 80,
                  "template": str(tpl_path), "threshold": 0.9, "roi": [],
-                 "stable_frames": 1, "cooldown_ms": 0,
+                 "present_ms": 0, "absent_ms": 0, "cooldown_ms": 0,
                  "actions": [{"type": "script", "op": "pause", "target": "current"}],
                  "miss_actions": [{"type": "script", "op": "resume", "target": "current"}]},
             ],

@@ -20,8 +20,10 @@ DEFAULTS_RULE = {
     "multiscale": True,
     "priority": 50,
     "cooldown_ms": 1000,
+    "miss_cooldown_ms": 1000,
+    "present_ms": 300,
+    "absent_ms": 600,
     "poll_ms": 0,
-    "stable_frames": 1,
     "require_absence": True,
     "max_triggers": 0,
     "group": "",
@@ -79,8 +81,22 @@ def normalize_rule(d: dict, idx: int = 0) -> dict:
     out["multiscale"] = bool(d.get("multiscale", True))
     out["priority"] = _i(d.get("priority", 50), 50)
     out["cooldown_ms"] = max(0, _i(d.get("cooldown_ms", 1000), 1000))
+    out["miss_cooldown_ms"] = max(0, _i(d.get("miss_cooldown_ms", out["cooldown_ms"]),
+                                       out["cooldown_ms"]))
     out["poll_ms"] = max(0, _i(d.get("poll_ms", 0), 0))
-    out["stable_frames"] = max(1, _i(d.get("stable_frames", 1), 1))
+    present = d.get("present_ms", None)
+    absent = d.get("absent_ms", None)
+    if present is None:
+        if "stable_frames" in d:
+            sf = max(1, _i(d.get("stable_frames", 1), 1))
+            poll = max(30, _i(d.get("poll_ms", 0) or 150, 150))
+            present = 0 if sf <= 1 else (sf - 1) * poll
+        else:
+            present = 300
+    if absent is None:
+        absent = 600
+    out["present_ms"] = max(0, _i(present, 300))
+    out["absent_ms"] = max(0, _i(absent, 600))
     out["require_absence"] = bool(d.get("require_absence", True))
     out["max_triggers"] = max(0, _i(d.get("max_triggers", 0), 0))
     out["group"] = str(d.get("group", "") or "")
@@ -190,6 +206,7 @@ def match_rule(matcher: TemplateMatcher, frame, region, rule, origin=(0, 0)) -> 
 @dataclass
 class RuleState:
     streak: int = 0
+    hit_since: float = 0.0
     prev_hit: bool = False
     last_fire: float = 0.0
     count: int = 0
@@ -263,16 +280,19 @@ class MonitorEngine:
                 results[rule["id"]] = res
                 st = states[rule["id"]]
                 if res.score >= rule["threshold"]:
+                    if st.hit_since == 0:
+                        st.hit_since = now
                     st.streak += 1
                     st.last_match = res
                 else:
+                    st.hit_since = 0
                     st.streak = 0
 
             def eligible(rule):
                 st = states[rule["id"]]
                 if not rule.get("enabled", True):
                     return False
-                if st.streak < rule["stable_frames"]:
+                if not st.hit_since or (now - st.hit_since) < rule["present_ms"]:
                     return False
                 if rule["require_absence"] and st.prev_hit:
                     return False

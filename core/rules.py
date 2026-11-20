@@ -23,6 +23,8 @@ class RuleState:
     present: bool = False
     hit_streak: int = 0
     miss_streak: int = 0
+    hit_since: float = 0.0
+    miss_since: float = 0.0
     last_fire: float = 0.0
     score: float = 0.0
     error: str = ""
@@ -129,7 +131,6 @@ class BackgroundRuleEngine(threading.Thread):
                 for rule in rules:
                     st = self._state(str(rule.get("id")))
                     st.error = str(exc)
-                    st.present = False
                 self._close_source()
                 self._stop.wait(0.5)
                 continue
@@ -165,15 +166,20 @@ class BackgroundRuleEngine(threading.Thread):
                     st.next_due = now + 0.5
                     results[rid] = (rule, st, False, None, True)
 
-            # 稳定帧状态
+            # 持续时间 / 消失时间计时
             for rid, (rule, st, hit, res, evaluated) in results.items():
                 if not evaluated:
                     continue
-                stable = max(1, int(rule.get("stable_frames", 1)))
                 if hit:
+                    if st.hit_since == 0:
+                        st.hit_since = now
+                    st.miss_since = 0
                     st.hit_streak += 1
                     st.miss_streak = 0
                 else:
+                    if st.miss_since == 0:
+                        st.miss_since = now
+                    st.hit_since = 0
                     st.miss_streak += 1
                     st.hit_streak = 0
 
@@ -188,12 +194,15 @@ class BackgroundRuleEngine(threading.Thread):
             for rid, (rule, st, hit, res, evaluated) in results.items():
                 if not evaluated:
                     continue
-                stable = max(1, int(rule.get("stable_frames", 1)))
-                if not st.present and st.hit_streak >= stable:
+                present_ms = max(0, int(rule.get("present_ms", 0) or 0))
+                absent_ms = max(0, int(rule.get("absent_ms", 600) or 0))
+                if (not st.present and hit and st.hit_since
+                        and (now - st.hit_since) * 1000.0 >= present_ms):
                     st.present = True
                     if rid not in member_link:
                         fire_on.append((rule, st))
-                elif st.present and st.miss_streak >= stable:
+                elif (st.present and not hit and st.miss_since
+                      and (now - st.miss_since) * 1000.0 >= absent_ms):
                     st.present = False
                     fire_off.append((rule, st))
 
@@ -263,7 +272,8 @@ class BackgroundRuleEngine(threading.Thread):
                     self._link_step[lid] = step
 
             for rule, st in fire_off:
-                cooldown = max(0, int(rule.get("cooldown_ms", 0))) / 1000.0
+                cooldown = max(0, int(rule.get("miss_cooldown_ms",
+                                               rule.get("cooldown_ms", 0)) or 0)) / 1000.0
                 if now - st.last_fire < cooldown:
                     continue
                 st.last_fire = now

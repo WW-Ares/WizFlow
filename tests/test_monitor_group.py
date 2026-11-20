@@ -51,11 +51,11 @@ def base_group(a, b, actions_a, actions_b, max_actions=1, run_mode="once", links
         "run_mode": run_mode, "timeout_ms": 2000, "stop_on_match": False,
         "rules": [
             {"id": "a", "name": "A", "template": a, "threshold": 0.9,
-             "priority": 100, "cooldown_ms": 0, "stable_frames": 1,
+             "priority": 100, "cooldown_ms": 0, "present_ms": 0, "absent_ms": 0,
              "require_absence": True, "actions": actions_a, "group": "",
              "recheck": False},
             {"id": "b", "name": "B", "template": b, "threshold": 0.9,
-             "priority": 50, "cooldown_ms": 0, "stable_frames": 1,
+             "priority": 50, "cooldown_ms": 0, "present_ms": 0, "absent_ms": 0,
              "require_absence": True, "actions": actions_b, "group": "",
              "recheck": False},
         ],
