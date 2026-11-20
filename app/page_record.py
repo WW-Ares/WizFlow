@@ -737,9 +737,13 @@ class RecordPageMixin:
         if not self.player.running:
             return
         if self.player.paused:
-            self.player.resume(None)
-            self._set_header("回放中", theme.ACCENT)
-            self._append_play_log("继续运行")
+            self.player.resume("manual")
+            if self.player.paused:
+                self._set_header("已暂停", theme.WARN)
+                self._append_play_log("仍有规则暂停")
+            else:
+                self._set_header("回放中", theme.ACCENT)
+                self._append_play_log("继续运行")
         else:
             self.player.pause("manual")
             self._set_header("已暂停", theme.WARN)
@@ -748,16 +752,22 @@ class RecordPageMixin:
     def _resume_play(self):
         if not self.player.running:
             return
-        self.player.resume(None)
-        self._set_header("回放中", theme.ACCENT)
-        self._append_play_log("继续运行")
+        self.player.resume("manual")
+        if self.player.paused:
+            self._set_header("已暂停", theme.WARN)
+            self._append_play_log("仍有规则暂停")
+        else:
+            self._set_header("回放中", theme.ACCENT)
+            self._append_play_log("继续运行")
 
     def _pause_for_rule(self, reason: str):
-        if not self.player.running or self.player.paused:
+        if not self.player.running:
             return False
+        was_paused = self.player.paused
         self.player.pause(reason)
-        self._set_header("已暂停", theme.WARN)
-        self._append_play_log("已暂停（规则）")
+        if not was_paused:
+            self._set_header("已暂停", theme.WARN)
+            self._append_play_log("已暂停（规则）")
         return True
 
     def _resume_for_rule(self, reason: str):

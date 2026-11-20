@@ -455,24 +455,21 @@ class RuleDialog(ctk.CTkToplevel):
         self.present_ms_var = tk.StringVar(value=str(self.rule.get("present_ms", 300)))
         entry(grid, width=80, textvariable=self.present_ms_var).grid(
             row=2, column=1, sticky="w", padx=(6, 28))
-        label(grid, "最大次数", 9, theme.MUTED).grid(row=2, column=2, sticky="w")
-        self.max_var = tk.StringVar(value=str(self.rule.get("max_triggers", 0)))
-        entry(grid, width=80, textvariable=self.max_var).grid(
+        label(grid, "消失时间(ms)", 9, theme.MUTED).grid(row=2, column=2, sticky="w")
+        self.absent_ms_var = tk.StringVar(value=str(self.rule.get("absent_ms", 600)))
+        entry(grid, width=80, textvariable=self.absent_ms_var).grid(
             row=2, column=3, sticky="w", padx=(6, 10))
-        label(grid, "0=不限", 9).grid(row=2, column=4, sticky="w")
         label(grid, "轮询ms", 9, theme.MUTED).grid(row=2, column=5, sticky="w", padx=(20, 0))
         self.poll_var = tk.StringVar(value=str(self.rule.get("poll_ms", 0)))
         entry(grid, width=70, textvariable=self.poll_var).grid(
             row=2, column=6, sticky="w", padx=6)
         label(grid, "0=跟随场景", 9).grid(row=2, column=7, sticky="w")
 
-        label(grid, "消失时间(ms)", 9, theme.MUTED).grid(row=3, column=0, sticky="w", pady=(8, 2))
-        self.absent_ms_var = tk.StringVar(value=str(self.rule.get("absent_ms", 600)))
-        entry(grid, width=80, textvariable=self.absent_ms_var).grid(
-            row=3, column=1, sticky="w", padx=(6, 28), pady=(8, 2))
-        self.absence_var = tk.BooleanVar(value=bool(self.rule.get("require_absence", True)))
-        ctk.CTkSwitch(grid, text="只在图标从无到有时触发", variable=self.absence_var,
-                      font=(theme.FONT, theme.fs(9)), progress_color=theme.ACCENT).grid(
+        label(grid, "每次出现执行次数", 9, theme.MUTED).grid(row=3, column=0, sticky="w", pady=(8, 2))
+        self.fires_var = tk.StringVar(value=str(self.rule.get("fires_per_present", 1)))
+        entry(grid, width=80, textvariable=self.fires_var).grid(
+            row=3, column=1, sticky="w", padx=(6, 20), pady=(8, 2))
+        label(grid, "0=不限制  1=只执行一次  N=最多N次", 9).grid(
             row=3, column=2, columnspan=2, sticky="w", pady=(8, 2))
         self.enabled_var = tk.BooleanVar(value=bool(self.rule.get("enabled", True)))
         self.enabled_switch = ctk.CTkSwitch(grid, text="启用该规则", variable=self.enabled_var,
@@ -486,7 +483,7 @@ class RuleDialog(ctk.CTkToplevel):
                                              progress_color=theme.ACCENT,
                                              command=self._on_resident_switch)
         self.resident_switch.grid(row=3, column=5, columnspan=2, sticky="w",
-                                  padx=(28, 0), pady=(8, 2))
+                                  padx=(24, 0), pady=(8, 2))
         self._apply_switch_link()
 
         label(grid, "关联组", 9, theme.MUTED).grid(row=4, column=0, sticky="w", pady=(6, 3))
@@ -798,9 +795,8 @@ class RuleDialog(ctk.CTkToplevel):
         r["miss_cooldown_ms"] = max(0, int(float(self.miss_cooldown_var.get() or 0)))
         r["present_ms"] = max(0, int(float(self.present_ms_var.get() or 0)))
         r["absent_ms"] = max(0, int(float(self.absent_ms_var.get() or 0)))
-        r["max_triggers"] = max(0, int(float(self.max_var.get() or 0)))
+        r["fires_per_present"] = max(0, int(float(self.fires_var.get() or 0)))
         r["poll_ms"] = max(0, int(float(self.poll_var.get() or 0)))
-        r["require_absence"] = bool(self.absence_var.get())
         r["enabled"] = bool(self.enabled_var.get())
         r["template"] = self.template
         r["template_rect"] = list(self.template_rect)

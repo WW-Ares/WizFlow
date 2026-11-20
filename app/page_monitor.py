@@ -793,6 +793,17 @@ class MonitorPageMixin:
         except Exception as exc:
             self._toast("测试失败：%s" % exc, "error")
 
+    @staticmethod
+    def _fmt_duration(seconds) -> str:
+        s = max(0, int(seconds or 0))
+        if s < 60:
+            return "%ds" % s
+        if s < 3600:
+            return "%dm %02ds" % (s // 60, s % 60)
+        if s < 86400:
+            return "%dh %02dm" % (s // 3600, (s % 3600) // 60)
+        return "%dd %02dh" % (s // 86400, (s % 86400) // 3600)
+
     def _rules_status_tick(self):
         try:
             engine = getattr(self, "rules_engine", None)
@@ -825,11 +836,14 @@ class MonitorPageMixin:
                 elif st.get("error"):
                     lab.configure(text="异常：%s" % str(st["error"])[:28], text_color=theme.WARN)
                 elif st.get("present"):
-                    lab.configure(text="命中 %.2f · %.1fms" % (
-                        float(st.get("score", 0)), float(st.get("cost_ms", 0))),
+                    lab.configure(text="命中 %.2f · %s" % (
+                        float(st.get("score", 0)),
+                        self._fmt_duration(st.get("present_s", 0))),
                         text_color=theme.OK)
                 else:
-                    lab.configure(text="监控中 %.1fms" % float(st.get("cost_ms", 0)),
+                    lab.configure(text="监控中 %.2f · %s" % (
+                        float(st.get("score", 0)),
+                        self._fmt_duration(st.get("absent_s", 0))),
                         text_color=theme.MUTED)
         except Exception:
             pass

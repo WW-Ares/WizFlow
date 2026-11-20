@@ -24,8 +24,7 @@ DEFAULTS_RULE = {
     "present_ms": 300,
     "absent_ms": 600,
     "poll_ms": 0,
-    "require_absence": True,
-    "max_triggers": 0,
+    "fires_per_present": 1,
     "group": "",
     "recheck": True,
     "resident": False,
@@ -97,8 +96,13 @@ def normalize_rule(d: dict, idx: int = 0) -> dict:
         absent = 600
     out["present_ms"] = max(0, _i(present, 300))
     out["absent_ms"] = max(0, _i(absent, 600))
-    out["require_absence"] = bool(d.get("require_absence", True))
-    out["max_triggers"] = max(0, _i(d.get("max_triggers", 0), 0))
+    if "fires_per_present" in d:
+        fires = _i(d.get("fires_per_present", 1), 1)
+    elif "require_absence" in d:
+        fires = 1 if bool(d.get("require_absence", True)) else 0
+    else:
+        fires = 1
+    out["fires_per_present"] = max(0, fires)
     out["group"] = str(d.get("group", "") or "")
     out["recheck"] = bool(d.get("recheck", True))
     out["enabled"] = bool(d.get("enabled", True))
@@ -207,6 +211,7 @@ def match_rule(matcher: TemplateMatcher, frame, region, rule, origin=(0, 0)) -> 
 class RuleState:
     streak: int = 0
     hit_since: float = 0.0
+    presence_fires: int = 0
     prev_hit: bool = False
     last_fire: float = 0.0
     count: int = 0
@@ -287,6 +292,7 @@ class MonitorEngine:
                 else:
                     st.hit_since = 0
                     st.streak = 0
+                    st.presence_fires = 0
 
             def eligible(rule):
                 st = states[rule["id"]]
@@ -294,11 +300,10 @@ class MonitorEngine:
                     return False
                 if not st.hit_since or (now - st.hit_since) < rule["present_ms"]:
                     return False
-                if rule["require_absence"] and st.prev_hit:
+                fires = max(0, int(rule.get("fires_per_present", 1) or 0))
+                if fires and st.presence_fires >= fires:
                     return False
                 if st.last_fire and (now - st.last_fire) < rule["cooldown_ms"]:
-                    return False
-                if rule["max_triggers"] and st.count >= rule["max_triggers"]:
                     return False
                 return True
 
@@ -422,6 +427,7 @@ class MonitorEngine:
                     st = states[r["id"]]
                     st.last_fire = now
                     st.count += 1
+                    st.presence_fires += 1
                     st.prev_hit = True
                     on_status("命中：%s  score=%.3f  @(%d,%d)"
                               % (r["name"], results[r["id"]].score,

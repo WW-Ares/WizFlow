@@ -52,11 +52,11 @@ def base_group(a, b, actions_a, actions_b, max_actions=1, run_mode="once", links
         "rules": [
             {"id": "a", "name": "A", "template": a, "threshold": 0.9,
              "priority": 100, "cooldown_ms": 0, "present_ms": 0, "absent_ms": 0,
-             "require_absence": True, "actions": actions_a, "group": "",
+             "fires_per_present": 1, "actions": actions_a, "group": "",
              "recheck": False},
             {"id": "b", "name": "B", "template": b, "threshold": 0.9,
              "priority": 50, "cooldown_ms": 0, "present_ms": 0, "absent_ms": 0,
-             "require_absence": True, "actions": actions_b, "group": "",
+             "fires_per_present": 1, "actions": actions_b, "group": "",
              "recheck": False},
         ],
         "links": links or [],
@@ -145,6 +145,7 @@ def test_require_absence():
     a, b = make_templates(tmp)
     move = [{"type": "move", "position": "center"}]
     g = base_group(a, b, move, move, max_actions=1, run_mode="continuous")
+    g["rules"] = g["rules"][:1]
     moves = []
     p = make_player(moves)
     stop = threading.Event()

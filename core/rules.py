@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from .capture import make_source
@@ -25,6 +25,8 @@ class RuleState:
     miss_streak: int = 0
     hit_since: float = 0.0
     miss_since: float = 0.0
+    presence_fires: int = 0
+    created_at: float = field(default_factory=time.time)
     last_fire: float = 0.0
     score: float = 0.0
     error: str = ""
@@ -199,19 +201,21 @@ class BackgroundRuleEngine(threading.Thread):
                 if (not st.present and hit and st.hit_since
                         and (now - st.hit_since) * 1000.0 >= present_ms):
                     st.present = True
+                    st.presence_fires = 0
                     if rid not in member_link:
                         fire_on.append((rule, st))
                 elif (st.present and not hit and st.miss_since
                       and (now - st.miss_since) * 1000.0 >= absent_ms):
                     st.present = False
+                    st.presence_fires = 0
                     fire_off.append((rule, st))
 
             def can_fire(rule, st):
                 cooldown = max(0, int(rule.get("cooldown_ms", 0))) / 1000.0
                 if now - st.last_fire < cooldown:
                     return False
-                maxt = max(0, int(rule.get("max_triggers", 0) or 0))
-                if maxt and st.count >= maxt:
+                fires = max(0, int(rule.get("fires_per_present", 1) or 0))
+                if fires and st.presence_fires >= fires:
                     return False
                 return True
 
@@ -220,6 +224,7 @@ class BackgroundRuleEngine(threading.Thread):
                     return
                 st.last_fire = now
                 st.count += 1
+                st.presence_fires += 1
                 self._fire(rule, rule.get("actions"), st.center)
 
             present_priorities = {}
@@ -235,6 +240,14 @@ class BackgroundRuleEngine(threading.Thread):
                     others = [p for k, p in present_priorities.items() if k != rid]
                     if others and max(others) > prio:
                         continue
+                fire_rule(rule, st)
+
+            for _rid, (rule, st, _hit, _res, ev) in results.items():
+                if (not ev or not st.present or _rid in member_link
+                        or not rule.get("enabled", True)):
+                    continue
+                if st.presence_fires <= 0 or st.last_fire >= now:
+                    continue
                 fire_rule(rule, st)
 
             for link in links:
@@ -304,8 +317,16 @@ class BackgroundRuleEngine(threading.Thread):
 
     def status(self) -> list[dict]:
         out = []
+        now = time.time()
         for rid, st in list(self._states.items()):
+            if st.present:
+                present_s = max(0.0, now - (st.hit_since or st.created_at))
+                absent_s = 0.0
+            else:
+                present_s = 0.0
+                absent_s = max(0.0, now - (st.miss_since or st.created_at))
             out.append({"id": rid, "present": st.present, "score": st.score,
                         "error": st.error, "cost_ms": st.cost_ms,
+                        "present_s": present_s, "absent_s": absent_s,
                         "count": st.count})
         return out
