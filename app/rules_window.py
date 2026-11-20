@@ -118,8 +118,8 @@ class ActionDialog(ctk.CTkToplevel):
             w.destroy()
         self.vars.clear()
 
-    def _field(self, key, text, default="", width=220):
-        row = ctk.CTkFrame(self.form, fg_color="transparent")
+    def _field(self, key, text, default="", width=220, parent=None):
+        row = ctk.CTkFrame(parent or self.form, fg_color="transparent")
         row.pack(fill="x", pady=3)
         label(row, text, 10, theme.MUTED, width=100, anchor="w").pack(side="left")
         var = tk.StringVar(value=str(default))
@@ -129,13 +129,14 @@ class ActionDialog(ctk.CTkToplevel):
         self.vars[key] = var
         return var
 
-    def _combo(self, key, text, values, default):
+    def _combo(self, key, text, values, default, command=None):
         row = ctk.CTkFrame(self.form, fg_color="transparent")
         row.pack(fill="x", pady=3)
         label(row, text, 10, theme.MUTED, width=100, anchor="w").pack(side="left")
         var = tk.StringVar(value=str(default))
         m = ctk.CTkOptionMenu(row, variable=var, values=values, width=180, height=28,
-                              fg_color=theme.CARD2, button_color=theme.LINE)
+                              fg_color=theme.CARD2, button_color=theme.LINE,
+                              command=command)
         m.pack(side="left")
         Tooltip(m, FIELD_TIPS.get(key, text))
         self.vars[key] = var
@@ -153,7 +154,16 @@ class ActionDialog(ctk.CTkToplevel):
     def _rebuild(self):
         self._clear()
         t = self._key_for_name(self.type_var.get())
-        a = self.action
+        a = dict(self.action)
+        if "op" in self.vars:
+            a["op"] = OP_DISP.get(self._v("op", "运行"), a.get("op", "run"))
+        if "target" in self.vars:
+            a["target"] = TARGET_DISP.get(self._v("target", "当前脚本"),
+                                          a.get("target", "current"))
+        if "path" in self.vars:
+            name = self._v("path", "")
+            if name and name != "（选择脚本）":
+                a["path"] = "scripts/" + name
         self._field("delay_ms", "执行前延迟(ms)", a.get("delay_ms", 0), 100)
         if t == "click":
             self._combo("button", "鼠标键", list(BTN_DISP.keys()),
@@ -172,31 +182,57 @@ class ActionDialog(ctk.CTkToplevel):
                         "向下" if str(a.get("direction", "up")) == "down" else "向上")
             self._field("amount", "滚动格数", a.get("amount", 3), 80)
             self._field("interval_ms", "每格间隔(ms)", a.get("interval_ms", 60), 80)
-            self._position_fields(a)
         elif t == "key":
             self._field("keys", "按键", a.get("keys", "1"), 180)
+            krow = ctk.CTkFrame(self.form, fg_color="transparent")
+            krow.pack(fill="x", pady=3)
+            label(krow, "采集", 10, theme.MUTED, width=100, anchor="w").pack(side="left")
+            ctk.CTkButton(krow, text="采集按键", width=110, height=28,
+                          fg_color=theme.ACCENT, text_color="#04121f",
+                          font=(theme.FONT, theme.fs(10)),
+                          command=self._capture_key).pack(side="left")
             self._field("hold_ms", "按住时长(ms)", a.get("hold_ms", 40), 80)
         elif t == "script":
             if self.inline:
                 self._combo("op", "操作", ["运行", "停止"],
-                            "停止" if str(a.get("op")) == "stop" else "运行")
+                            "停止" if str(a.get("op")) == "stop" else "运行",
+                            command=lambda _v: self._rebuild())
                 self.vars["target"] = tk.StringVar(value="指定脚本")
                 self.vars["busy"] = tk.StringVar(value="切换")
                 self.vars["wait"] = tk.BooleanVar(value=True)
+                if str(a.get("op")) != "stop":
+                    names = ["（选择脚本）"] + [p.name for p in list_scripts()]
+                    self._combo("path", "脚本", names,
+                                Path(str(a.get("path", ""))).name or "（选择脚本）")
+                    self._field("anchor_x", "锚点 X（可空）",
+                                (a.get("anchor") or ["", ""])[0], 80)
+                    self._field("anchor_y", "锚点 Y（可空）",
+                                (a.get("anchor") or ["", ""])[1], 80)
             else:
                 self._combo("op", "操作", list(OP_DISP.keys()),
-                            OP_REV.get(a.get("op", "run"), "运行"))
+                            OP_REV.get(a.get("op", "run"), "运行"),
+                            command=lambda _v: self._rebuild())
                 self._combo("target", "目标", list(TARGET_DISP.keys()),
-                            TARGET_REV.get(a.get("target", "current"), "当前脚本"))
-            names = ["（选择脚本）"] + [p.name for p in list_scripts()]
-            self._combo("path", "脚本", names, Path(str(a.get("path", ""))).name or "（选择脚本）")
-            if not self.inline:
-                self._combo("busy", "忙碌时", list(BUSY_DISP.keys()),
-                            BUSY_REV.get(a.get("busy", "switch"), "切换"))
-            self._field("anchor_x", "锚点 X（可空）", (a.get("anchor") or ["", ""])[0], 80)
-            self._field("anchor_y", "锚点 Y（可空）", (a.get("anchor") or ["", ""])[1], 80)
-            if not self.inline:
-                self._switch("wait", "等待脚本执行完", a.get("wait", True))
+                            TARGET_REV.get(a.get("target", "current"), "当前脚本"),
+                            command=lambda _v: self._rebuild())
+                op = str(a.get("op", "run"))
+                target = str(a.get("target", "current"))
+                if op == "run":
+                    names = ["（选择脚本）"] + [p.name for p in list_scripts()]
+                    self._combo("path", "脚本", names,
+                                Path(str(a.get("path", ""))).name or "（选择脚本）")
+                    self._combo("busy", "忙碌时", list(BUSY_DISP.keys()),
+                                BUSY_REV.get(a.get("busy", "switch"), "切换"))
+                    self._switch("wait", "等待脚本执行完", a.get("wait", True))
+                    if target == "script":
+                        self._field("anchor_x", "锚点 X（可空）",
+                                    (a.get("anchor") or ["", ""])[0], 80)
+                        self._field("anchor_y", "锚点 Y（可空）",
+                                    (a.get("anchor") or ["", ""])[1], 80)
+                elif target == "script":
+                    names = ["（选择脚本）"] + [p.name for p in list_scripts()]
+                    self._combo("path", "脚本", names,
+                                Path(str(a.get("path", ""))).name or "（选择脚本）")
         elif t == "wait":
             self._field("ms", "等待毫秒", a.get("ms", 200), 100)
         elif t == "text":
@@ -223,21 +259,36 @@ class ActionDialog(ctk.CTkToplevel):
                         STOP_REV.get(a.get("scope", "monitor"), "停止本监控"))
 
     def _position_fields(self, a):
+        self._pos_action = a
         self._combo("position", "位置", list(POS_DISP.keys()),
-                    POS_REV.get(a.get("position", "center"), "图标中心"))
-        self._field("offset_x", "偏移 X", (a.get("offset") or [0, 0])[0], 80)
-        self._field("offset_y", "偏移 Y", (a.get("offset") or [0, 0])[1], 80)
-        p = a.get("point") or [0, 0]
-        self._field("point_x", "固定坐标 X", p[0], 80)
-        self._field("point_y", "固定坐标 Y", p[1], 80)
-        self._field("random_x", "随机偏移 X", a.get("random_x", 0), 80)
-        self._field("random_y", "随机偏移 Y", a.get("random_y", 0), 80)
-        prow = ctk.CTkFrame(self.form, fg_color="transparent")
-        prow.pack(fill="x", pady=3)
-        label(prow, "定位", 10, theme.MUTED, width=100, anchor="w").pack(side="left")
-        ctk.CTkButton(prow, text="屏幕取点", width=96, height=28, fg_color=theme.ACCENT,
-                      text_color="#04121f", font=(theme.FONT, theme.fs(10)),
-                      command=self._pick_point).pack(side="left")
+                    POS_REV.get(a.get("position", "center"), "图标中心"),
+                    command=lambda _v: self._refresh_position_fields())
+        self.pos_box = ctk.CTkFrame(self.form, fg_color="transparent")
+        self.pos_box.pack(fill="x")
+        self._refresh_position_fields()
+
+    def _refresh_position_fields(self):
+        a = getattr(self, "_pos_action", {})
+        try:
+            for w in list(self.pos_box.winfo_children()):
+                w.destroy()
+        except Exception:
+            return
+        pos = POS_DISP.get(self._v("position", "图标中心"), "center")
+        if pos == "absolute":
+            p = a.get("point") or [0, 0]
+            self._field("point_x", "固定坐标 X", self._v("point_x", p[0]), 80, self.pos_box)
+            self._field("point_y", "固定坐标 Y", self._v("point_y", p[1]), 80, self.pos_box)
+            prow = ctk.CTkFrame(self.pos_box, fg_color="transparent")
+            prow.pack(fill="x", pady=3)
+            label(prow, "定位", 10, theme.MUTED, width=100, anchor="w").pack(side="left")
+            ctk.CTkButton(prow, text="屏幕取点", width=96, height=28, fg_color=theme.ACCENT,
+                          text_color="#04121f", font=(theme.FONT, theme.fs(10)),
+                          command=self._pick_point).pack(side="left")
+        elif pos == "follow":
+            off = a.get("offset") or [0, 0]
+            self._field("offset_x", "偏移 X", self._v("offset_x", off[0]), 80, self.pos_box)
+            self._field("offset_y", "偏移 Y", self._v("offset_y", off[1]), 80, self.pos_box)
 
     def _v(self, key, default=""):
         v = self.vars.get(key)
@@ -309,14 +360,13 @@ class ActionDialog(ctk.CTkToplevel):
 
     def _pos_dict(self):
         pos = POS_DISP.get(self._v("position", "图标中心"), "center")
-        out = {"position": pos,
-               "offset": [int(float(self._v("offset_x", 0) or 0)),
-                          int(float(self._v("offset_y", 0) or 0))],
-               "random_x": abs(int(float(self._v("random_x", 0) or 0))),
-               "random_y": abs(int(float(self._v("random_y", 0) or 0)))}
+        out = {"position": pos}
         if pos == "absolute":
             out["point"] = [int(float(self._v("point_x", 0) or 0)),
                             int(float(self._v("point_y", 0) or 0))]
+        elif pos == "follow":
+            out["offset"] = [int(float(self._v("offset_x", 0) or 0)),
+                             int(float(self._v("offset_y", 0) or 0))]
         return out
 
     def _app_root(self):
@@ -381,6 +431,14 @@ class ActionDialog(ctk.CTkToplevel):
             self.vars["point_y"].set(str(int(y)))
         if "position" in self.vars:
             self.vars["position"].set("固定坐标")
+            try:
+                self._refresh_position_fields()
+            except Exception:
+                pass
+
+    def _capture_key(self):
+        from .key_record_dialog import KeyRecordDialog
+        KeyRecordDialog(self, on_done=lambda combo: self.vars["keys"].set(combo))
 
     def _pick_drag_end(self):
         self._pick_with_minimize(self._on_drag_point)
@@ -565,12 +623,15 @@ class RuleDialog(ctk.CTkToplevel):
                       command=self._pick_from_library).pack(side="left", padx=4)
         self.tpl_label = label(icon_row, "", 9, theme.MUTED)
         self.tpl_label.pack(side="left", padx=6)
+        label(top, "可添加 1–N 个模板，任意一个命中即算命中；建议只裁剪图标核心区域，避免带动画/文字。",
+              9, theme.MUTED, anchor="w", justify="left", wraplength=820).pack(
+            anchor="w", padx=14, pady=(0, 4))
         self.tpl_box = ctk.CTkScrollableFrame(top, fg_color=theme.BG2, corner_radius=8,
-                                              height=78)
+                                              height=82)
         self.tpl_box.pack(fill="x", padx=14, pady=(0, 10))
         self._refresh_templates()
 
-        act_card = Card(self.scroll, "动作列表", "按顺序执行")
+        act_card = Card(self.scroll, "命中动作", "图标命中时按顺序执行")
         act_card.pack(fill="x", padx=16, pady=(0, 8))
         bar = ctk.CTkFrame(act_card.body, fg_color="transparent")
         bar.pack(fill="x", pady=(0, 6))
@@ -583,7 +644,7 @@ class RuleDialog(ctk.CTkToplevel):
         self.actions_scroll.pack(fill="x", expand=True)
         self._refresh_actions()
 
-        miss_card = Card(self.scroll, "消失动作", "图标从有到无时执行")
+        miss_card = Card(self.scroll, "消失动作", "图标消失时按顺序执行")
         miss_card.pack(fill="x", padx=16, pady=(0, 8))
         mbar = ctk.CTkFrame(miss_card.body, fg_color="transparent")
         mbar.pack(fill="x", pady=(0, 6))
@@ -702,9 +763,17 @@ class RuleDialog(ctk.CTkToplevel):
             label(self.tpl_box, "未选择模板；可添加 1 个或多个，任意命中即算命中",
                   9, theme.MUTED).pack(anchor="w", padx=8, pady=8)
         else:
+            imgs = []
             for i, t in enumerate(self.templates):
                 row = ctk.CTkFrame(self.tpl_box, fg_color="transparent")
                 row.pack(fill="x", pady=1)
+                img = load_image(t)
+                if img is not None:
+                    pil = to_ctk_image(img)
+                    pil.thumbnail((30, 30), Image.LANCZOS)
+                    ci = ctk.CTkImage(light_image=pil, dark_image=pil, size=pil.size)
+                    imgs.append(ci)
+                    ctk.CTkLabel(row, text="", image=ci, width=34).pack(side="left", padx=4)
                 label(row, "%d. %s" % (i + 1, Path(t).name), 9, theme.TEXT,
                       anchor="w").pack(side="left", fill="x", expand=True, padx=6)
                 ctk.CTkButton(row, text="删除", width=44, height=22,
@@ -712,6 +781,7 @@ class RuleDialog(ctk.CTkToplevel):
                               font=(theme.FONT, theme.fs(9)),
                               command=lambda idx=i: self._remove_template(idx)).pack(
                     side="right", padx=4)
+            self._tpl_imgs = imgs
         try:
             self.tpl_label.configure(
                 text=("已选 %d 个模板" % len(self.templates)) if self.templates else "未选择")
@@ -743,7 +813,12 @@ class RuleDialog(ctk.CTkToplevel):
             handle.pack(side="left", padx=(0, 2))
             handle.bind("<ButtonPress-1>", lambda _e, idx=i: self._drag_start("hit", idx))
             label(row, "%02d" % (i + 1), 9, theme.LINE, width=30).pack(side="left")
+            label(row, TYPE_NAMES.get(str(a.get("type")), str(a.get("type"))), 8,
+                  theme.ACCENT, width=58).pack(side="left", padx=(0, 4))
             label(row, action_summary(a), 10, theme.TEXT, anchor="w").pack(side="left", fill="x", expand=True)
+            _delay = int(a.get("delay_ms", 0) or 0)
+            if _delay:
+                label(row, "+%dms" % _delay, 8, theme.MUTED, width=58).pack(side="left")
             ctk.CTkButton(row, text="编辑", width=50, height=24, fg_color=theme.CARD2,
                       font=(theme.FONT, theme.fs(9)),
                           command=lambda idx=i: self._edit_action(idx)).pack(side="left", padx=3)
@@ -832,8 +907,13 @@ class RuleDialog(ctk.CTkToplevel):
             handle.pack(side="left", padx=(0, 2))
             handle.bind("<ButtonPress-1>", lambda _e, idx=i: self._drag_start("miss", idx))
             label(row, "%02d" % (i + 1), 9, theme.LINE, width=30).pack(side="left")
+            label(row, TYPE_NAMES.get(str(a.get("type")), str(a.get("type"))), 8,
+                  theme.ACCENT, width=58).pack(side="left", padx=(0, 4))
             label(row, action_summary(a), 10, theme.TEXT, anchor="w").pack(
                 side="left", fill="x", expand=True)
+            _delay = int(a.get("delay_ms", 0) or 0)
+            if _delay:
+                label(row, "+%dms" % _delay, 8, theme.MUTED, width=58).pack(side="left")
             ctk.CTkButton(row, text="编辑", width=50, height=24, fg_color=theme.CARD2,
                       font=(theme.FONT, theme.fs(9)),
                           command=lambda idx=i: self._edit_miss_action(idx)).pack(side="left", padx=3)
