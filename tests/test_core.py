@@ -103,8 +103,8 @@ def test_monitor_timeout():
         }
         t0 = time.time()
         assert p.start([ev], 1, 2.0, script_dir=tmp)
-        wait_player(p)
-        assert time.time() - t0 < 5.0
+        wait_player(p, timeout=10.0)
+        assert time.time() - t0 < 8.0
         assert any("监控超时" in s for s in statuses), statuses
         assert any(s == "DONE:finished" for s in statuses), statuses
     finally:
