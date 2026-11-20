@@ -21,6 +21,75 @@ def center_window(win) -> None:
         pass
 
 
+class Tooltip:
+    """悬停提示：延迟显示在控件下方，离开/点击自动隐藏。"""
+
+    def __init__(self, widget, text: str = "", delay: int = 400, wraplength: int = 360):
+        self.widget = widget
+        self.text = text
+        self.delay = delay
+        self.wraplength = wraplength
+        self._job = None
+        self._tip = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+        widget.bind("<Destroy>", self._hide, add="+")
+
+    def set_text(self, text: str) -> None:
+        self.text = text or ""
+
+    def _schedule(self, _e=None):
+        self._hide()
+        if not self.text:
+            return
+        try:
+            self._job = self.widget.after(self.delay, self._show)
+        except Exception:
+            pass
+
+    def _show(self):
+        self._job = None
+        if not self.text:
+            return
+        try:
+            tip = tk.Toplevel(self.widget)
+            tip.overrideredirect(True)
+            tip.attributes("-topmost", True)
+            tip.configure(bg=theme.LINE)
+            box = ctk.CTkFrame(tip, fg_color=theme.CARD2, corner_radius=6)
+            box.pack(fill="both", expand=True, padx=1, pady=1)
+            lbl = ctk.CTkLabel(box, text=self.text, justify="left", anchor="w",
+                               wraplength=self.wraplength, text_color=theme.TEXT,
+                               font=(theme.FONT, theme.fs(9)))
+            lbl.pack(padx=10, pady=8)
+            tip.update_idletasks()
+            w = min(self.wraplength + 24, max(120, lbl.winfo_reqwidth() + 24))
+            h = lbl.winfo_reqheight() + 18
+            wx = self.widget.winfo_rootx()
+            wy = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+            sw = self.widget.winfo_screenwidth()
+            x = max(4, min(wx, sw - w - 4))
+            tip.geometry("%dx%d+%d+%d" % (w, h, x, wy))
+            self._tip = tip
+        except Exception:
+            self._tip = None
+
+    def _hide(self, _e=None):
+        if self._job is not None:
+            try:
+                self.widget.after_cancel(self._job)
+            except Exception:
+                pass
+            self._job = None
+        if self._tip is not None:
+            try:
+                self._tip.destroy()
+            except Exception:
+                pass
+            self._tip = None
+
+
 class Card(ctk.CTkFrame):
     def __init__(self, master, title: str = "", subtitle: str = "", **kwargs):
         kwargs.setdefault("fg_color", theme.CARD)

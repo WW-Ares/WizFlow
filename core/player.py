@@ -130,7 +130,8 @@ class Player:
                 if self._stop.is_set():
                     reason = "stopped"
                     break
-                self.on_status("运行中  第 %d%s 轮" % (idx + 1, "" if loops > 0 else " 轮（无限）"), 0.0)
+                self.on_status(("运行中  第 %d/%d 轮" % (idx + 1, loops))
+                               if loops > 0 else "运行中[无限]", 0.0)
                 if not self._exec_events(events, None, top_level=True):
                     reason = "stopped"
                     break

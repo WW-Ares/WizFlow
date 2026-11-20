@@ -13,13 +13,13 @@ WARN = "#f59e0b"
 DANGER = "#ef4444"
 PURPLE = "#a78bfa"
 
-import os
-
 FONT = "Microsoft YaHei UI"
 MONO = "Consolas"
-FONT_SCALE = float(os.environ.get("WIZFLOW_UI_SCALE", "1.30"))
+
+# 全项目唯一一套排版系数：字号与控件尺寸固定，不提供用户缩放
+FONT_SCALE = 1.30
+WIDGET_SCALE = 1.06
 
 
 def fs(size):
     return max(8, int(round(float(size) * FONT_SCALE)))
-

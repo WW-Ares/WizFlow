@@ -65,6 +65,13 @@ class TrayIcon:
         except Exception:
             pass
 
+    def notify(self, message: str, title: str = "WizFlow") -> None:
+        try:
+            if self._icon is not None:
+                self._icon.notify(message, title)
+        except Exception:
+            pass
+
     def stop(self) -> None:
         try:
             if self._icon is not None:

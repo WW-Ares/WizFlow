@@ -32,7 +32,7 @@ from .icon_crop_dialog import IconCropDialog
 from .rules_window import RulesWindow
 from .point_picker import PointPicker
 from .key_record_dialog import KeyRecordDialog
-from .widgets import AutoScrollFrame, Card, ImagePanel, entry, label
+from .widgets import AutoScrollFrame, Card, ImagePanel, Tooltip, entry, label
 from .window_picker import WindowPicker
 
 
@@ -376,6 +376,7 @@ class MonitorPageMixin:
         rrow.pack(fill="x", pady=(6, 0))
         self.region_label = label(rrow, "区域：未选择", 10, theme.TEXT)
         self.region_label.pack(side="left")
+        self._region_tip = Tooltip(self.region_label, "")
         self._btn(rrow, "框选区域", lambda: self._pick_region(False), width=80, height=28,
                   color=theme.ACCENT, text_color="#04121f").pack(side="left", padx=6)
         self._btn(rrow, "刷新预览", self._grab_preview, width=76, height=28).pack(side="left")
@@ -895,10 +896,18 @@ class MonitorPageMixin:
         r = self.monitor_profile.region
         if len(r) == 4 and r[2] > 0 and r[3] > 0:
             prefix = "窗口内" if self._capture_mode() != "screen" else "区域"
-            self.region_label.configure(text="%s：X=%d  Y=%d  宽=%d  高=%d"
-                                        % (prefix, r[0], r[1], r[2], r[3]))
+            self.region_label.configure(text="%s：%d × %d" % (prefix, r[2], r[3]))
+            try:
+                self._region_tip.set_text("X=%d  Y=%d  宽=%d  高=%d"
+                                          % (r[0], r[1], r[2], r[3]))
+            except Exception:
+                pass
         else:
             self.region_label.configure(text="区域：未选择")
+            try:
+                self._region_tip.set_text("先在画面上框选监控区域")
+            except Exception:
+                pass
 
     def _new_source(self):
         return make_source(self.monitor_profile.to_dict())

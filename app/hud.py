@@ -144,7 +144,9 @@ class HudWindow(tk.Toplevel):
         _shadow_text(fc, 39, 26, "WizFlow", self.f_title, "#e8edf6", "w")
 
         text, fill, line, fg = STATE_STYLE.get(self._state, STATE_STYLE["idle"])
-        if self._state == "running" and "第" in self._status_text:
+        if self._state == "running" and "无限" in self._status_text:
+            text = "运行中[无限]"
+        elif self._state == "running" and "第" in self._status_text:
             text = self._status_text.replace("运行中", "回放中")[:10]
         elif self._state == "recording":
             text = "录制中"

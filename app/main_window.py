@@ -26,7 +26,7 @@ from core.recorder import Recorder
 from core.screen import TemplateMatcher
 from core.rules import BackgroundRuleEngine
 from core.vdisplay import keepalive
-from core.window_geometry import center_on_primary, rect_visible_enough
+from core.window_geometry import center_on_primary, primary_work_area, rect_visible_enough
 from core.winapi import is_admin, set_awake
 from .page_monitor import MonitorPageMixin
 from .page_record import RecordPageMixin
@@ -292,6 +292,46 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             pass
         log(msg, level.upper())
 
+    def _notify_user(self, text: str):
+        text = str(text or "规则通知")
+        self._toast(text, "info")
+        try:
+            if self.tray is not None:
+                self.tray.notify(text)
+        except Exception:
+            pass
+        self._show_notify_popup(text)
+
+    def _show_notify_popup(self, text: str):
+        try:
+            old = getattr(self, "_notify_win", None)
+            if old is not None:
+                old.destroy()
+        except Exception:
+            pass
+        try:
+            win = tk.Toplevel(self)
+            win.overrideredirect(True)
+            win.attributes("-topmost", True)
+            win.configure(bg=theme.LINE)
+            box = ctk.CTkFrame(win, fg_color=theme.CARD2, corner_radius=8)
+            box.pack(fill="both", expand=True, padx=1, pady=1)
+            ctk.CTkLabel(box, text=text, justify="left", anchor="w", wraplength=320,
+                         text_color=theme.TEXT,
+                         font=(theme.FONT, theme.fs(10))).pack(padx=14, pady=10)
+            win.update_idletasks()
+            w = min(360, max(180, win.winfo_reqwidth()))
+            h = win.winfo_reqheight()
+            px, py, pw, _ph = primary_work_area()
+            x = px + pw - w - 24
+            # 固定放在悬浮窗下方，避免盖住 HUD 状态与键位
+            y = py + 116
+            win.geometry("%dx%d+%d+%d" % (w, h, x, y))
+            self._notify_win = win
+            win.after(3500, win.destroy)
+        except Exception:
+            self._notify_win = None
+
     def _set_header(self, text: str, color: str):
         self.header_pill.set(text, color)
         try:
@@ -520,7 +560,7 @@ class App(RecordPageMixin, MonitorPageMixin, SettingsPageMixin, ctk.CTk):
             self.input_queue.put((item, center))
             return
         if typ == "notify":
-            self._toast(str(act.get("text", "") or "规则通知"), "info")
+            self._notify_user(str(act.get("text", "") or "规则通知"))
             return
         if typ == "stop":
             if self.player.running:

@@ -830,7 +830,9 @@ class RecordPageMixin:
 
     def _apply_player_status(self, text: str, progress):
         if text:
-            if "第" in text:
+            if "无限" in text:
+                self._set_header("运行中[无限]", theme.ACCENT)
+            elif "第" in text:
                 self._set_header(text.replace("运行中", "回放中")[:14], theme.ACCENT)
             elif "完成" in text:
                 self._set_header("已完成", theme.OK)

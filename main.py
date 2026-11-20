@@ -371,9 +371,9 @@ def main() -> int:
         import customtkinter as ctk
         ctk.deactivate_automatic_dpi_awareness()
         Config()
-        # 界面尺寸固定，不再读取/提供缩放设置
-        os.environ["WIZFLOW_UI_SCALE"] = "1.30"
-        ctk.set_widget_scaling(1.06)
+        # 全项目固定排版，无缩放档位
+        from app import theme as _theme
+        ctk.set_widget_scaling(_theme.WIDGET_SCALE)
     except Exception:
         pass
     from app.main_window import App
