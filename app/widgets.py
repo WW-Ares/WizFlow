@@ -14,7 +14,11 @@ def center_window(win) -> None:
     """把 Toplevel 居中到主屏（保持当前尺寸）。"""
     try:
         win.update_idletasks()
-        w, h = win.winfo_width(), win.winfo_height()
+        # CTk 的 geometry 以未缩放单位计；直接传 winfo 尺寸会被二次放大
+        w = int(getattr(win, "_current_width", 0) or 0)
+        h = int(getattr(win, "_current_height", 0) or 0)
+        if w <= 1 or h <= 1:
+            w, h = win.winfo_width(), win.winfo_height()
         sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
         win.geometry("%dx%d+%d+%d" % (w, h, max(0, (sw - w) // 2), max(0, (sh - h) // 2)))
     except Exception:

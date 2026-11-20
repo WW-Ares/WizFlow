@@ -88,6 +88,9 @@ class ActionDialog(ctk.CTkToplevel):
         self.type_var = tk.StringVar(value=TYPE_NAMES.get(str(self.action.get("type", "click")), "单击 / 双击 / 长按"))
         self.vars = {}
         self._build()
+        self.update_idletasks()
+        target_h = max(720, self.scroll.winfo_reqheight() + 76)
+        self.geometry("1000x%d" % target_h)
         self.after(100, self._center)
 
     def _build(self):
@@ -540,9 +543,8 @@ class RuleDialog(ctk.CTkToplevel):
         self._drag_motion_id = None
         self._drag_release_id = None
         self.title("编辑监控规则")
-        self.geometry("1000x780")
-        self.resizable(False, True)
-        self.minsize(1000, 720)
+        self.geometry("1000x900")
+        self.resizable(False, False)
         self.configure(fg_color=theme.BG)
         self.transient(master)
         apply_window_icon(self)
@@ -551,8 +553,8 @@ class RuleDialog(ctk.CTkToplevel):
         self.after(100, self._center)
 
     def _build(self):
-        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.scroll.pack(fill="both", expand=True, padx=0, pady=(10, 0))
+        self.scroll = ctk.CTkFrame(self, fg_color="transparent")
+        self.scroll.pack(fill="x", padx=0, pady=(10, 0))
         top = ctk.CTkFrame(self.scroll, fg_color=theme.CARD, corner_radius=12)
         top.pack(fill="x", padx=16, pady=(0, 8))
         grid = ctk.CTkFrame(top, fg_color="transparent")
@@ -688,7 +690,7 @@ class RuleDialog(ctk.CTkToplevel):
         e_fires = entry(bar, width=44, textvariable=self.fires_var)
         e_fires.pack(side="left")
         Tooltip(e_fires, "每次出现执行次数：0=不限制，1=一次，N=最多N次")
-        self.actions_scroll = AutoScrollFrame(act_card.body, height=190)
+        self.actions_scroll = AutoScrollFrame(act_card.body, height=240)
         self.actions_scroll.pack(fill="both", expand=True)
         self._refresh_actions()
 
@@ -704,7 +706,7 @@ class RuleDialog(ctk.CTkToplevel):
         e_mfires = entry(mbar, width=44, textvariable=self.miss_fires_var)
         e_mfires.pack(side="left")
         Tooltip(e_mfires, "每次消失执行次数：0=不限制，1=一次，N=最多N次")
-        self.miss_scroll = AutoScrollFrame(miss_card.body, height=190)
+        self.miss_scroll = AutoScrollFrame(miss_card.body, height=240)
         self.miss_scroll.pack(fill="both", expand=True)
         self._refresh_miss_actions()
 
@@ -1029,7 +1031,30 @@ class RuleDialog(ctk.CTkToplevel):
         self.destroy()
 
     def _center(self):
+        self._fit_height()
         center_window(self)
+        self.after(240, self._refit)
+
+    def _refit(self):
+        self._fit_height()
+        center_window(self)
+
+    def _fit_height(self):
+        """按内容实际高度收缩窗口，保证固定尺寸下刚好显示全部内容。"""
+        try:
+            self.update_idletasks()
+            bottoms = [c for c in self.winfo_children() if c is not self.scroll]
+            if not bottoms:
+                return
+            b = bottoms[0]
+            need = b.winfo_y() + b.winfo_height() + 10
+            cur = self.winfo_height()
+            if abs(cur - need) <= 6:
+                return
+            ratio = cur / max(1, int(getattr(self, "_current_height", 0) or cur))
+            self.geometry("1000x%d" % max(600, int(round(need / ratio))))
+        except Exception:
+            pass
 
 
 class LinkDialog(ctk.CTkToplevel):
