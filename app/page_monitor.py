@@ -332,8 +332,8 @@ class MonitorPageMixin:
         self.pages["monitor"] = outer
         page.grid_columnconfigure(0, weight=4, uniform="mon")
         page.grid_columnconfigure(1, weight=3, uniform="mon")
-        page.grid_rowconfigure(0, weight=0)
-        page.grid_rowconfigure(1, weight=1)
+        page.grid_rowconfigure(0, weight=1)
+        page.grid_rowconfigure(1, weight=0)
         self._init_scheme_library()
         self.region_shot = None
 
@@ -390,25 +390,21 @@ class MonitorPageMixin:
         label(rrow, "ms", 9).pack(side="left", padx=2)
 
         self.preview_panel = ImagePanel(region.body, size=(390, 140), text="框选区域后点击刷新预览")
-        self.preview_panel.pack(fill="x", pady=(8, 0))
+        self.preview_panel.pack(fill="both", expand=True, pady=(8, 0))
         self.preview_stop = None
         self.preview_thread = None
         self.preview_latest = None
 
         icons = Card(page, "图标库", "点击查看，规则里选择模板")
-        icons.grid(row=1, column=0, sticky="nsew", padx=(0, 6), pady=(6, 0))
-        ih = ctk.CTkFrame(icons.body, fg_color="transparent")
-        ih.pack(fill="x")
-        self.icon_selected_label = label(ih, "当前图标：未选择", 10, theme.TEXT)
-        self.icon_selected_label.pack(side="left")
-        self._btn(ih, "删除", self._delete_icon, width=58, color=theme.DANGER,
-                  text_color="white").pack(side="left", padx=6)
+        icons.grid(row=1, column=0, sticky="new", padx=(0, 6), pady=(6, 0))
+        ih = icons.head
         self._btn(ih, "刷新", self._refresh_icons, width=58).pack(side="right")
         self._btn(ih, "目录", self._open_icons_dir, width=58).pack(side="right", padx=6)
         self._btn(ih, "添加", self._add_icons, width=58, color=theme.OK,
                   text_color="#04121f").pack(side="right")
-        self.icons_scroll = AutoScrollFrame(icons.body, height=220)
-        self.icons_scroll.pack(fill="both", expand=True, pady=(8, 0))
+        # 固定两排图标高度，剩余空间留给监控场景
+        self.icons_scroll = AutoScrollFrame(icons.body, height=282)
+        self.icons_scroll.pack(fill="x")
 
         rules = Card(page, "监控规则", "常驻 = 脚本外运行；也可插入脚本节点")
         rules.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(6, 0))
@@ -597,7 +593,7 @@ class MonitorPageMixin:
         RuleDialog(self, None, links=self.multi_group.get("links") or [],
                    region_shot=self.region_shot, region=self.monitor_profile.region,
                    default_name="规则%d" % (len(self._rules()) + 1),
-                   on_save=self._append_rule)
+                   on_save=self._append_rule, on_template_saved=self._refresh_icons)
 
     def _append_rule(self, rule):
         g = normalize_monitor_group(self.multi_group)
@@ -619,7 +615,7 @@ class MonitorPageMixin:
             self._toast("规则已保存：%s" % new.get("name"), "ok")
         RuleDialog(self, rule, links=self.multi_group.get("links") or [],
                    region_shot=self.region_shot, region=self.monitor_profile.region,
-                   on_save=save)
+                   on_save=save, on_template_saved=self._refresh_icons)
 
     def _delete_rule(self, rid: str):
         rule = next((r for r in self._rules() if str(r.get("id")) == rid), None)
@@ -1018,7 +1014,8 @@ class MonitorPageMixin:
         self.multi_group["region"] = [int(v) for v in region]
         RulesWindow(self, self.multi_group, self.region_shot, region,
                     on_save=self._save_multi_group,
-                    on_insert=self._insert_multi_group)
+                    on_insert=self._insert_multi_group,
+                    on_template_saved=self._refresh_icons)
 
     def _insert_multi_group(self, group=None, persist=True):
         g = normalize_monitor_group(group or self.multi_group)
@@ -1205,31 +1202,37 @@ class MonitorPageMixin:
                 cimg = cache.get(key)
                 if cimg is None:
                     img = Image.open(path).convert("RGB")
-                    img.thumbnail((64, 64), Image.LANCZOS)
-                    cimg = ctk.CTkImage(light_image=img, dark_image=img, size=img.size)
+                    img.thumbnail((56, 56), Image.LANCZOS)
+                    # 统一缩略图区域为 64x64，保证每张卡片高度一致
+                    box = Image.new("RGB", (64, 64), theme.CARD2)
+                    box.paste(img, ((64 - img.width) // 2, (64 - img.height) // 2))
+                    cimg = ctk.CTkImage(light_image=box, dark_image=box, size=(64, 64))
                 new_cache[key] = cimg
                 self._icon_imgs.append(cimg)
             except Exception:
                 cimg = None
             selected = bool(self.monitor_profile.template) and \
                 Path(self.monitor_profile.template).name == path.name
-            b = ctk.CTkButton(self.icons_scroll.inner, text=path.stem[:12], image=cimg,
-                              compound="top", width=92, height=88, fg_color=theme.CARD2,
+            cell = ctk.CTkFrame(self.icons_scroll.inner, fg_color="transparent", width=108)
+            cell.grid(row=i // 3, column=i % 3, padx=3, pady=3, sticky="n")
+            b = ctk.CTkButton(cell, text=path.stem[:12], image=cimg,
+                              compound="top", width=100, height=96, fg_color=theme.CARD2,
                               hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
                               border_width=1,
                               border_color=theme.ACCENT if selected else theme.LINE,
                               command=lambda p=path: self._select_icon(p))
-            b.grid(row=i // 3, column=i % 3, padx=5, pady=5, sticky="nsew")
-            if selected:
-                self.icon_selected_label.configure(text="当前模板：%s" % path.name)
+            b.pack(padx=4, pady=(4, 0))
+            ctk.CTkButton(cell, text="删除", width=100, height=20, fg_color=theme.DANGER,
+                          text_color="white", font=(theme.FONT, theme.fs(8)),
+                          command=lambda p=path: self._delete_icon_file(p)).pack(
+                padx=4, pady=(3, 0))
         self._icon_cache = new_cache
         for c in range(3):
-            self.icons_scroll.inner.grid_columnconfigure(c, weight=1)
+            self.icons_scroll.inner.grid_columnconfigure(c, weight=0)
 
 
     def _select_icon(self, path: Path):
         self._selected_icon = str(path)
-        self.icon_selected_label.configure(text="当前图标：%s" % path.name)
         self._refresh_icons()
 
     def _add_icons(self):
@@ -1239,23 +1242,25 @@ class MonitorPageMixin:
         IconCropDialog(self, self.region_shot, self.monitor_profile.region, name,
                        default_crop=None, on_save=self._on_icon_saved)
 
-    def _delete_icon(self):
-        if not self._selected_icon:
-            self._toast("先在图标库选中一个图标", "warn")
+    def _delete_icon_file(self, path: Path):
+        path = Path(path)
+        if not path.exists():
             return
-        p = Path(self._selected_icon)
-        if p.exists() and messagebox.askyesno("删除图标", "确定删除 %s？" % p.name):
-            try:
-                p.unlink()
-            except Exception as exc:
-                self._toast("删除失败: %s" % exc, "error")
-                return
+        if not messagebox.askyesno("删除图标", "确定删除 %s？" % path.name):
+            return
+        try:
+            path.unlink()
+        except Exception as exc:
+            self._toast("删除失败: %s" % exc, "error")
+            return
+        if str(path) == getattr(self, "_selected_icon", ""):
             self._selected_icon = ""
+        if self.monitor_profile.template and \
+                Path(self.monitor_profile.template).name == path.name:
             self.monitor_profile.template = ""
-            self.icon_selected_label.configure(text="当前图标：未选择")
             self._sync_profile()
-            self._refresh_icons()
-            self._toast("图标已删除", "ok")
+        self._refresh_icons()
+        self._toast("图标已删除", "ok")
 
     # ------------------------------------------------------------ 参数/监控
     def _refresh_monitor_script_menu(self):

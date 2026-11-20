@@ -25,6 +25,10 @@ class RuleState:
     miss_streak: int = 0
     hit_since: float = 0.0
     miss_since: float = 0.0
+    present_s: float = 0.0
+    absent_s: float = 0.0
+    present_since: float = 0.0
+    absent_since: float = 0.0
     presence_fires: int = 0
     absence_fires: int = 0
     ever_present: bool = False
@@ -64,6 +68,13 @@ class BackgroundRuleEngine(threading.Thread):
         self._paused.set()
 
     def resume(self) -> None:
+        # 恢复时重设计时基准，暂停期间的时间不计入命中/消失时长
+        now = time.time()
+        for st in self._states.values():
+            if st.present and st.present_since:
+                st.present_since = now - st.present_s
+            elif (not st.present) and st.absent_since:
+                st.absent_since = now - st.absent_s
         self._paused.clear()
 
     @property
@@ -128,6 +139,19 @@ class BackgroundRuleEngine(threading.Thread):
             rules = [r for r in group.get("rules", [])
                      if bool(r.get("enabled", True)) and bool(r.get("resident", False))]
             self.enabled = bool(rules)
+            active_ids = {str(r.get("id")) for r in rules}
+            for rid, st in list(self._states.items()):
+                if rid in active_ids:
+                    continue
+                # 不参与监控时冻结并重置计时，避免重新启用后时长跳变
+                st.present_s = 0.0
+                st.absent_s = 0.0
+                if st.present:
+                    st.present_since = time.time()
+                    st.absent_since = 0.0
+                else:
+                    st.present_since = 0.0
+                    st.absent_since = time.time() if st.miss_since else 0.0
             if not rules or len(region) != 4 or region[2] <= 0 or region[3] <= 0:
                 self._close_source()
                 self._stop.wait(0.4)
@@ -199,9 +223,18 @@ class BackgroundRuleEngine(threading.Thread):
                 else:
                     if st.miss_since == 0:
                         st.miss_since = now
+                    if st.absent_since == 0:
+                        st.absent_since = now
                     st.hit_since = 0
                     st.miss_streak += 1
                     st.hit_streak = 0
+
+                if st.present:
+                    st.present_s = max(0.0, now - st.present_since) if st.present_since else 0.0
+                    st.absent_s = 0.0
+                else:
+                    st.absent_s = max(0.0, now - st.absent_since) if st.absent_since else 0.0
+                    st.present_s = 0.0
 
             links = [l for l in (group.get("links") or []) if isinstance(l, dict)]
             member_link = {}
@@ -222,6 +255,9 @@ class BackgroundRuleEngine(threading.Thread):
                     st.ever_present = True
                     st.presence_fires = 0
                     st.absence_fires = 0
+                    st.present_since = now
+                    st.absent_since = 0.0
+                    st.present_s = 0.0
                     if rid not in member_link:
                         fire_on.append((rule, st))
                 elif (st.present and not hit and st.miss_since
@@ -229,6 +265,9 @@ class BackgroundRuleEngine(threading.Thread):
                     st.present = False
                     st.presence_fires = 0
                     st.absence_fires = 0
+                    st.absent_since = now
+                    st.present_since = 0.0
+                    st.absent_s = 0.0
                     fire_off.append((rule, st))
 
             def can_fire(rule, st):
@@ -345,14 +384,10 @@ class BackgroundRuleEngine(threading.Thread):
 
     def status(self) -> list[dict]:
         out = []
-        now = time.time()
         for rid, st in list(self._states.items()):
-            if st.present:
-                present_s = max(0.0, now - (st.hit_since or st.created_at))
-                absent_s = 0.0
-            else:
-                present_s = 0.0
-                absent_s = max(0.0, now - (st.miss_since or st.created_at))
+            # 使用引擎线程写入的稳定时长，暂停/停止时自然冻结
+            present_s = max(0.0, float(st.present_s)) if st.present else 0.0
+            absent_s = 0.0 if st.present else max(0.0, float(st.absent_s))
             out.append({"id": rid, "present": st.present, "score": st.score,
                         "error": st.error, "cost_ms": st.cost_ms,
                         "present_s": present_s, "absent_s": absent_s,

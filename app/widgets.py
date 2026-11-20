@@ -98,8 +98,10 @@ class Card(ctk.CTkFrame):
         kwargs.setdefault("border_color", theme.LINE)
         super().__init__(master, **kwargs)
         self.body = self
+        self.head = None
         if title:
             head = ctk.CTkFrame(self, fg_color="transparent")
+            self.head = head
             head.pack(fill="x", padx=18, pady=(14, 0))
             ctk.CTkLabel(head, text=title, font=(theme.FONT, theme.fs(15), "bold"),
                          text_color=theme.TEXT).pack(side="left")
@@ -230,7 +232,11 @@ class ImagePanel(ctk.CTkLabel):
             return
         from PIL import Image
         iw, ih = pil.size
-        scale = min(self.size[0] / max(1, iw), self.size[1] / max(1, ih), 1.0)
+        # 面板会随窗口拉伸，按当前实际尺寸缩放，避免预览周围留白
+        pw, ph = self.winfo_width(), self.winfo_height()
+        if pw <= 1 or ph <= 1:
+            pw, ph = self.size
+        scale = min(pw / max(1, iw), ph / max(1, ih), 1.0)
         if scale < 1.0:
             pil = pil.resize((max(1, int(iw * scale)), max(1, int(ih * scale))), Image.LANCZOS)
         self._img = ctk.CTkImage(light_image=pil, dark_image=pil, size=pil.size)
@@ -461,6 +467,21 @@ class AutoScrollFrame(ctk.CTkFrame):
                 self.vbar.grid_remove()
         except Exception:
             pass
+
+    def capture_wheel(self):
+        """滚轮只滚动本容器：绑到整棵子树并截断事件，外层滚动容器不再响应。"""
+        def walk(w):
+            try:
+                w.bind("<MouseWheel>", self._wheel_capture, add="+")
+            except Exception:
+                pass
+            for child in w.winfo_children():
+                walk(child)
+        walk(self)
+
+    def _wheel_capture(self, e):
+        self._wheel(e)
+        return "break"
 
     def _wheel(self, e):
         try:

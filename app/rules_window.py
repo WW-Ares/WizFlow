@@ -518,9 +518,10 @@ class ActionDialog(ctk.CTkToplevel):
 
 class RuleDialog(ctk.CTkToplevel):
     def __init__(self, master, rule=None, links=None, region_shot=None, region=None,
-                 default_name="规则", on_save=None):
+                 default_name="规则", on_save=None, on_template_saved=None):
         super().__init__(master)
         self.on_save = on_save
+        self.on_template_saved = on_template_saved
         self.rule = normalize_rule(copy.deepcopy(rule or {}))
         if not rule:
             self.rule["name"] = default_name
@@ -584,17 +585,16 @@ class RuleDialog(ctk.CTkToplevel):
                                      font=(theme.MONO, theme.fs(10)), text_color=theme.ACCENT)
         self.th_label.pack(side="left", padx=6)
 
-        label(grid, "命中冷却(ms)", 9, theme.MUTED).grid(row=1, column=2, sticky="w")
-        self.cooldown_var = tk.StringVar(value=str(self.rule.get("cooldown_ms", 1000)))
-        e_hit_cd = entry(grid, width=80, textvariable=self.cooldown_var)
-        e_hit_cd.grid(row=1, column=3, sticky="w", padx=(6, 18))
-        Tooltip(e_hit_cd, "命中冷却：两次命中动作之间的最小间隔")
-        label(grid, "消失冷却(ms)", 9, theme.MUTED).grid(row=1, column=4, sticky="w")
-        self.miss_cooldown_var = tk.StringVar(
-            value=str(self.rule.get("miss_cooldown_ms", self.rule.get("cooldown_ms", 1000))))
-        e_miss_cd = entry(grid, width=80, textvariable=self.miss_cooldown_var)
-        e_miss_cd.grid(row=1, column=5, sticky="w", padx=(6, 10))
-        Tooltip(e_miss_cd, "消失冷却：两次消失动作之间的最小间隔")
+        label(grid, "命中时间(ms)", 9, theme.MUTED).grid(row=1, column=2, sticky="w")
+        self.present_ms_var = tk.StringVar(value=str(self.rule.get("present_ms", 300)))
+        e_present = entry(grid, width=80, textvariable=self.present_ms_var)
+        e_present.grid(row=1, column=3, sticky="w", padx=(6, 18))
+        Tooltip(e_present, "连续命中超过该时长才算命中（ms）")
+        label(grid, "消失时间(ms)", 9, theme.MUTED).grid(row=1, column=4, sticky="w")
+        self.absent_ms_var = tk.StringVar(value=str(self.rule.get("absent_ms", 600)))
+        e_absent = entry(grid, width=80, textvariable=self.absent_ms_var)
+        e_absent.grid(row=1, column=5, sticky="w", padx=(6, 10))
+        Tooltip(e_absent, "连续消失超过该时长才算消失（ms）；用于忽略短暂遮挡")
 
         label(grid, "轮询ms", 9, theme.MUTED).grid(row=2, column=0, sticky="w", pady=3)
         poll_box = ctk.CTkFrame(grid, fg_color="transparent")
@@ -604,16 +604,17 @@ class RuleDialog(ctk.CTkToplevel):
         e_poll.pack(side="left")
         label(poll_box, "0=跟随场景", 9).pack(side="left", padx=(8, 0))
         Tooltip(e_poll, "该规则的检测间隔（ms）；0=跟随场景")
-        label(grid, "持续时间(ms)", 9, theme.MUTED).grid(row=2, column=2, sticky="w")
-        self.present_ms_var = tk.StringVar(value=str(self.rule.get("present_ms", 300)))
-        e_present = entry(grid, width=80, textvariable=self.present_ms_var)
-        e_present.grid(row=2, column=3, sticky="w", padx=(6, 18))
-        Tooltip(e_present, "连续命中超过该时长才算出现（ms）")
-        label(grid, "消失时间(ms)", 9, theme.MUTED).grid(row=2, column=4, sticky="w")
-        self.absent_ms_var = tk.StringVar(value=str(self.rule.get("absent_ms", 600)))
-        e_absent = entry(grid, width=80, textvariable=self.absent_ms_var)
-        e_absent.grid(row=2, column=5, sticky="w", padx=(6, 10))
-        Tooltip(e_absent, "连续消失超过该时长才算消失（ms）；用于忽略短暂遮挡")
+        label(grid, "命中冷却(ms)", 9, theme.MUTED).grid(row=2, column=2, sticky="w")
+        self.cooldown_var = tk.StringVar(value=str(self.rule.get("cooldown_ms", 1000)))
+        e_hit_cd = entry(grid, width=80, textvariable=self.cooldown_var)
+        e_hit_cd.grid(row=2, column=3, sticky="w", padx=(6, 18))
+        Tooltip(e_hit_cd, "命中冷却：两次命中动作之间的最小间隔")
+        label(grid, "消失冷却(ms)", 9, theme.MUTED).grid(row=2, column=4, sticky="w")
+        self.miss_cooldown_var = tk.StringVar(
+            value=str(self.rule.get("miss_cooldown_ms", self.rule.get("cooldown_ms", 1000))))
+        e_miss_cd = entry(grid, width=80, textvariable=self.miss_cooldown_var)
+        e_miss_cd.grid(row=2, column=5, sticky="w", padx=(6, 10))
+        Tooltip(e_miss_cd, "消失冷却：两次消失动作之间的最小间隔")
 
         self.enabled_var = tk.BooleanVar(value=bool(self.rule.get("enabled", True)))
         self.resident_var = tk.BooleanVar(value=bool(self.rule.get("resident", False)))
@@ -687,8 +688,7 @@ class RuleDialog(ctk.CTkToplevel):
         e_fires = entry(bar, width=44, textvariable=self.fires_var)
         e_fires.pack(side="left")
         Tooltip(e_fires, "每次出现执行次数：0=不限制，1=一次，N=最多N次")
-        self.actions_scroll = ctk.CTkScrollableFrame(act_card.body, fg_color=theme.BG2,
-                                                     corner_radius=8, height=190)
+        self.actions_scroll = AutoScrollFrame(act_card.body, height=190)
         self.actions_scroll.pack(fill="both", expand=True)
         self._refresh_actions()
 
@@ -704,8 +704,7 @@ class RuleDialog(ctk.CTkToplevel):
         e_mfires = entry(mbar, width=44, textvariable=self.miss_fires_var)
         e_mfires.pack(side="left")
         Tooltip(e_mfires, "每次消失执行次数：0=不限制，1=一次，N=最多N次")
-        self.miss_scroll = ctk.CTkScrollableFrame(miss_card.body, fg_color=theme.BG2,
-                                                   corner_radius=8, height=190)
+        self.miss_scroll = AutoScrollFrame(miss_card.body, height=190)
         self.miss_scroll.pack(fill="both", expand=True)
         self._refresh_miss_actions()
 
@@ -766,6 +765,11 @@ class RuleDialog(ctk.CTkToplevel):
         self._add_template("icons/" + Path(path).name)
         self.template_rect = list(rect)
         self._refresh_templates()
+        if callable(self.on_template_saved):
+            try:
+                self.on_template_saved()
+            except Exception:
+                pass
 
     def _add_template(self, path: str):
         path = str(path or "")
@@ -818,14 +822,15 @@ class RuleDialog(ctk.CTkToplevel):
             pass
 
     def _refresh_actions(self):
-        for w in list(self.actions_scroll.winfo_children()):
+        for w in list(self.actions_scroll.inner.winfo_children()):
             w.destroy()
         if not self.actions:
-            label(self.actions_scroll, "还没有动作，选择类型后点「添加动作」", 10,
+            label(self.actions_scroll.inner, "还没有动作，选择类型后点「添加动作」", 10,
                   theme.MUTED).pack(anchor="w", padx=8, pady=8)
+            self.actions_scroll.capture_wheel()
             return
         for i, a in enumerate(self.actions):
-            row = ctk.CTkFrame(self.actions_scroll, fg_color="transparent")
+            row = ctk.CTkFrame(self.actions_scroll.inner, fg_color="transparent")
             row.pack(fill="x", pady=2)
             handle = ctk.CTkLabel(row, text="≡", width=18, font=(theme.FONT, theme.fs(12)),
                                   text_color=theme.MUTED, cursor="fleur")
@@ -842,6 +847,7 @@ class RuleDialog(ctk.CTkToplevel):
             ctk.CTkButton(row, text="删除", width=50, height=24, fg_color=theme.DANGER,
                       font=(theme.FONT, theme.fs(9)),
                           command=lambda idx=i: self._delete_action(idx)).pack(side="left")
+        self.actions_scroll.capture_wheel()
 
     def _drag_start(self, kind, idx):
         self._drag_kind = kind
@@ -854,7 +860,7 @@ class RuleDialog(ctk.CTkToplevel):
         if self._drag_kind is None:
             return
         box = self.actions_scroll if self._drag_kind == "hit" else self.miss_scroll
-        rows = [w for w in box.winfo_children() if isinstance(w, ctk.CTkFrame)]
+        rows = [w for w in box.inner.winfo_children() if isinstance(w, ctk.CTkFrame)]
         if not rows:
             return
         target = len(rows) - 1
@@ -910,14 +916,15 @@ class RuleDialog(ctk.CTkToplevel):
             self._refresh_actions()
 
     def _refresh_miss_actions(self):
-        for w in list(self.miss_scroll.winfo_children()):
+        for w in list(self.miss_scroll.inner.winfo_children()):
             w.destroy()
         if not self.miss_actions:
-            label(self.miss_scroll, "还没有消失动作（可留空）", 10,
+            label(self.miss_scroll.inner, "还没有消失动作（可留空）", 10,
                   theme.MUTED).pack(anchor="w", padx=8, pady=8)
+            self.miss_scroll.capture_wheel()
             return
         for i, a in enumerate(self.miss_actions):
-            row = ctk.CTkFrame(self.miss_scroll, fg_color="transparent")
+            row = ctk.CTkFrame(self.miss_scroll.inner, fg_color="transparent")
             row.pack(fill="x", pady=2)
             handle = ctk.CTkLabel(row, text="≡", width=18, font=(theme.FONT, theme.fs(12)),
                                   text_color=theme.MUTED, cursor="fleur")
@@ -935,6 +942,7 @@ class RuleDialog(ctk.CTkToplevel):
             ctk.CTkButton(row, text="删除", width=50, height=24, fg_color=theme.DANGER,
                       font=(theme.FONT, theme.fs(9)),
                           command=lambda idx=i: self._delete_miss_action(idx)).pack(side="left")
+        self.miss_scroll.capture_wheel()
 
     def _add_miss_action(self):
         ActionDialog(self, {"type": "click"}, on_save=self._append_miss_action)
@@ -1092,10 +1100,12 @@ class LinkDialog(ctk.CTkToplevel):
 
 
 class RulesWindow(ctk.CTkToplevel):
-    def __init__(self, master, group, region_shot, region, on_save=None, on_insert=None):
+    def __init__(self, master, group, region_shot, region, on_save=None, on_insert=None,
+                 on_template_saved=None):
         super().__init__(master)
         self.on_save = on_save
         self.on_insert = on_insert
+        self.on_template_saved = on_template_saved
         self.group = normalize_monitor_group(copy.deepcopy(group or {}))
         self.region_shot = region_shot
         self.region = [int(v) for v in (region or [0, 0, 0, 0])]
@@ -1331,7 +1341,7 @@ class RulesWindow(ctk.CTkToplevel):
     def _add_rule(self):
         RuleDialog(self, None, self.group["links"], self.region_shot, self.region,
                    default_name="规则%d" % (len(self.group["rules"]) + 1),
-                   on_save=self._save_rule)
+                   on_save=self._save_rule, on_template_saved=self.on_template_saved)
 
     def _edit_rule(self, rid=None):
         rid = rid or self.selected_rule_id
@@ -1339,7 +1349,8 @@ class RulesWindow(ctk.CTkToplevel):
         if not r:
             return
         RuleDialog(self, r, self.group["links"], self.region_shot, self.region,
-                   on_save=lambda nr: self._save_rule(nr, rid))
+                   on_save=lambda nr: self._save_rule(nr, rid),
+                   on_template_saved=self.on_template_saved)
 
     def _save_rule(self, r, old_id=None):
         r = normalize_rule(r)

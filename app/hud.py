@@ -17,7 +17,7 @@ from . import theme
 
 TRANSPARENT = "#010203"
 CARD_W = 310
-CARD_H = 88
+CARD_H = 96
 BG = "#14181f"
 BORDER = "#2b3341"
 CHIP_BG = "#1f2530"
@@ -141,7 +141,7 @@ class HudWindow(tk.Toplevel):
                           smooth=True, splinesteps=16, fill=theme.ACCENT, outline="")
         fc.create_line(17, 27, 21, 21, 25, 24, 29, 18, fill="#ffffff", width=2,
                        capstyle="round", joinstyle="round")
-        _shadow_text(fc, 39, 26, "WizFlow", self.f_title, "#e8edf6", "w")
+        _shadow_text(fc, 39, 28, "WizFlow", self.f_title, "#e8edf6", "w")
 
         text, fill, line, fg = STATE_STYLE.get(self._state, STATE_STYLE["idle"])
         if self._state == "running" and "无限" in self._status_text:
@@ -154,13 +154,13 @@ class HudWindow(tk.Toplevel):
             text = "已暂停"
         elif self._state == "idle":
             text = "空闲"
-        pw = 12 + 6 + 5 + self.f_pill.measure(text) + 10
+        pw = 12 + 6 + 5 + self.f_pill.measure(text) + 14
         x2 = CARD_W - 12
         x1 = x2 - pw
-        y1, y2 = 12, 40
+        y1, y2 = 12, 44
         _round_rect(bc, x1, y1, x2, y2, (y2 - y1) / 2, fill=fill, outline="")
         _round_rect(fc, x1, y1, x2, y2, (y2 - y1) / 2, fill="", outline=line, width=1)
-        fc.create_oval(x1 + 9, 19, x1 + 17, 27, fill=line, outline="")
+        fc.create_oval(x1 + 9, 24, x1 + 17, 32, fill=line, outline="")
         _shadow_text(fc, x1 + 21, (y1 + y2) / 2, text, self.f_pill, fg, "w")
 
         labels = self._chip_labels()
@@ -169,7 +169,7 @@ class HudWindow(tk.Toplevel):
         for i, ((key, text), (x, w)) in enumerate(zip(labels, geoms)):
             tag = "chip%d" % i
             self._chip_tags.append(tag)
-            y1, y2 = 46, 80
+            y1, y2 = 52, 86
             _round_rect(bc, x, y1, x + w, y2, 7, fill=CHIP_BG, outline="", tags=(tag,))
             _round_rect(fc, x, y1, x + w, y2, 7, fill="", outline=CHIP_LINE, width=1, tags=(tag,))
             kw = self.f_key.measure(key)
