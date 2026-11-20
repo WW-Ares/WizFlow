@@ -614,21 +614,9 @@ class RuleDialog(ctk.CTkToplevel):
         label(grid, "0=跟随场景", 9).grid(row=2, column=6, sticky="w")
 
         self.enabled_var = tk.BooleanVar(value=bool(self.rule.get("enabled", True)))
-        self.enabled_switch = ctk.CTkSwitch(grid, text="启用该规则", variable=self.enabled_var,
-                                            font=(theme.FONT, theme.fs(9)),
-                                            progress_color=theme.OK,
-                                            command=self._on_enabled_switch)
-        self.enabled_switch.grid(row=3, column=4, sticky="w", pady=(8, 2))
         self.resident_var = tk.BooleanVar(value=bool(self.rule.get("resident", False)))
-        self.resident_switch = ctk.CTkSwitch(grid, text="常驻监控", variable=self.resident_var,
-                                             font=(theme.FONT, theme.fs(9)),
-                                             progress_color=theme.ACCENT,
-                                             command=self._on_resident_switch)
-        self.resident_switch.grid(row=3, column=5, columnspan=2, sticky="w",
-                                  padx=(24, 0), pady=(8, 2))
-        self._apply_switch_link()
 
-        label(grid, "关联组", 9, theme.MUTED).grid(row=4, column=0, sticky="w", pady=(6, 3))
+        label(grid, "关联组", 9, theme.MUTED).grid(row=3, column=0, sticky="w", pady=(6, 3))
         cur_group = self.rule.get("group", "")
         cur_name = next((l.get("name", l.get("id", "")) for l in self.links
                          if l.get("id") == cur_group), "（独立）")
@@ -638,14 +626,14 @@ class RuleDialog(ctk.CTkToplevel):
                                fg_color=theme.CARD2, button_color=theme.LINE,
                                font=(theme.FONT, theme.fs(10)),
                                dropdown_font=(theme.FONT, theme.fs(10)))
-        gm.grid(row=4, column=1, columnspan=2, sticky="w", padx=(6, 0), pady=(6, 3))
+        gm.grid(row=3, column=1, columnspan=2, sticky="w", padx=(6, 0), pady=(6, 3))
         Tooltip(gm, "加入关联组后按组策略（互斥/全部/顺序）触发")
 
-        label(grid, "二级搜索范围", 9, theme.MUTED).grid(
-            row=5, column=0, sticky="w", pady=(6, 3))
+        label(grid, "二级监控范围", 9, theme.MUTED).grid(
+            row=3, column=3, sticky="w", padx=(18, 0), pady=(6, 3))
         self.roi = list(self.rule.get("roi") or [0, 0, 0, 0])
         roi_btn = ctk.CTkFrame(grid, fg_color="transparent")
-        roi_btn.grid(row=5, column=1, columnspan=2, sticky="w", padx=(6, 0), pady=(6, 3))
+        roi_btn.grid(row=3, column=4, columnspan=3, sticky="w", padx=(6, 0), pady=(6, 3))
         self.btn_roi_all = ctk.CTkButton(roi_btn, text="整个监控区域", width=118, height=28,
                                          fg_color=theme.ACCENT, text_color="#04121f",
                                          hover_color="#0ea5e9", font=(theme.FONT, theme.fs(9)),
@@ -658,32 +646,27 @@ class RuleDialog(ctk.CTkToplevel):
                                           command=self._select_roi)
         self.btn_roi_pick.pack(side="left", padx=8)
         Tooltip(self.btn_roi_pick, "只在框选的二级范围内搜索")
-        self.roi_label = label(grid, "", 9, theme.MUTED, anchor="w")
-        self.roi_label.grid(row=5, column=3, columnspan=4, sticky="w", padx=(16, 0))
         self._refresh_roi_label()
 
         icon_row = ctk.CTkFrame(top, fg_color="transparent")
         icon_row.pack(fill="x", padx=14, pady=(0, 6))
-        self.icon_preview = ctk.CTkLabel(icon_row, text="未选择图标", fg_color=theme.BG2,
-                                         corner_radius=8, width=96, height=64)
-        self.icon_preview.pack(side="left")
-        ctk.CTkButton(icon_row, text="添加模板（截图）", width=150, height=34,
+        label(icon_row, "模板", 9, theme.MUTED, width=44, anchor="w").pack(side="left")
+        ctk.CTkButton(icon_row, text="添加模板（截图）", width=150, height=32,
                       fg_color=theme.OK, text_color="#04121f",
                       font=(theme.FONT, theme.fs(10)),
-                      command=self._crop_icon).pack(side="left", padx=(10, 4))
-        ctk.CTkButton(icon_row, text="从图标库添加", width=120, height=34,
+                      command=self._crop_icon).pack(side="left", padx=(6, 4))
+        ctk.CTkButton(icon_row, text="从图标库添加", width=120, height=32,
                       fg_color=theme.PURPLE, text_color="white",
                       font=(theme.FONT, theme.fs(10)),
                       command=self._pick_from_library).pack(side="left", padx=4)
         self.tpl_label = label(icon_row, "", 9, theme.MUTED)
-        self.tpl_label.pack(side="left", padx=6)
+        self.tpl_label.pack(side="left", padx=10)
         label(top, "可添加多个图片模板，任意一个命中即算命中；建议只裁剪图标核心区域。",
               9, theme.MUTED, anchor="w", justify="left", wraplength=820).pack(
             anchor="w", padx=14, pady=(0, 4))
         self.tpl_box = AutoScrollFrame(top, height=150)
         self.tpl_box.pack(fill="x", padx=14, pady=(0, 8))
         self._refresh_templates()
-        self._refresh_icon_preview()
 
         acts_row = ctk.CTkFrame(self.scroll, fg_color="transparent")
         acts_row.pack(fill="x", padx=16, pady=(0, 8))
@@ -733,31 +716,9 @@ class RuleDialog(ctk.CTkToplevel):
                       hover_color=theme.LINE, font=(theme.FONT, theme.fs(11)),
                       command=self.destroy).pack(side="left", padx=(8, 0))
 
-    def _on_enabled_switch(self):
-        if not self.enabled_var.get():
-            self.resident_var.set(False)
-        self._apply_switch_link()
-
-    def _on_resident_switch(self):
-        if not self.enabled_var.get():
-            self.resident_var.set(False)
-        self._apply_switch_link()
-
-    def _apply_switch_link(self):
-        try:
-            self.resident_switch.configure(
-                state="normal" if self.enabled_var.get() else "disabled")
-        except Exception:
-            pass
-
     def _refresh_roi_label(self):
         roi = self.roi or [0, 0, 0, 0]
         custom = len(roi) == 4 and roi[2] > 0 and roi[3] > 0
-        if custom:
-            self.roi_label.configure(text="X=%d  Y=%d  宽=%d  高=%d" % tuple(roi[:4]),
-                                     text_color=theme.TEXT)
-        else:
-            self.roi_label.configure(text="默认：覆盖整个监控区域", text_color=theme.MUTED)
         try:
             self.btn_roi_all.configure(
                 fg_color=theme.ACCENT if not custom else "transparent",
@@ -772,7 +733,7 @@ class RuleDialog(ctk.CTkToplevel):
 
     def _select_roi(self):
         if self.region_shot is None:
-            self.roi_label.configure(text="请先在主界面框选监控区域")
+            messagebox.showwarning("二级监控范围", "请先在主界面框选监控区域")
             return
         AreaSelectDialog(self, self.region_shot, self.region, self.roi, on_select=self._on_roi)
 
@@ -790,7 +751,6 @@ class RuleDialog(ctk.CTkToplevel):
     def _on_library_pick(self, path):
         self._add_template("icons/" + Path(path).name)
         self.template_rect = []
-        self._refresh_icon_preview()
         self._refresh_templates()
 
     def _crop_icon(self):
@@ -803,7 +763,6 @@ class RuleDialog(ctk.CTkToplevel):
     def _on_crop(self, path, rect):
         self._add_template("icons/" + Path(path).name)
         self.template_rect = list(rect)
-        self._refresh_icon_preview()
         self._refresh_templates()
 
     def _add_template(self, path: str):
@@ -818,7 +777,6 @@ class RuleDialog(ctk.CTkToplevel):
         if 0 <= idx < len(self.templates):
             self.templates.pop(idx)
         self.template = self.templates[0] if self.templates else ""
-        self._refresh_icon_preview()
         self._refresh_templates()
 
     def _refresh_templates(self):
@@ -856,16 +814,6 @@ class RuleDialog(ctk.CTkToplevel):
                 text=("已选 %d 个模板" % len(self.templates)) if self.templates else "未选择")
         except Exception:
             pass
-
-    def _refresh_icon_preview(self):
-        img = load_image(self.template) if self.template else None
-        if img is None:
-            self.icon_preview.configure(text="未选择图标", image=None, width=96, height=64)
-            return
-        pil = to_ctk_image(img)
-        pil.thumbnail((96, 64), Image.LANCZOS)
-        self._icon_img = ctk.CTkImage(light_image=pil, dark_image=pil, size=pil.size)
-        self.icon_preview.configure(image=self._icon_img, text="")
 
     def _refresh_actions(self):
         for w in list(self.actions_scroll.winfo_children()):
