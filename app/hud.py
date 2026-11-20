@@ -135,7 +135,6 @@ class HudWindow(tk.Toplevel):
         bc, fc = self.bg_canvas, self.canvas
         _round_rect(bc, 1, 1, CARD_W - 1, CARD_H - 1, 12, fill=BG, outline="")
         _round_rect(fc, 1, 1, CARD_W - 1, CARD_H - 1, 12, fill="", outline=BORDER, width=1)
-        fc.create_line(18, 2, CARD_W - 18, 2, fill="#ffffff", stipple="gray25")
 
         fc.create_polygon([15, 14, 29, 14, 32, 17, 32, 30, 29, 33, 15, 33, 12, 30, 12, 17],
                           smooth=True, splinesteps=16, fill=theme.ACCENT, outline="")

@@ -405,8 +405,6 @@ class MonitorPageMixin:
         # 固定两排图标高度，剩余空间留给监控场景
         self.icons_scroll = AutoScrollFrame(icons.body, height=282)
         self.icons_scroll.pack(fill="x")
-        self.icons_scroll.canvas.bind("<Configure>",
-                                      lambda _e: self._schedule_icon_layout(), add="+")
 
         rules = Card(page, "监控规则", "常驻 = 脚本外运行；也可插入脚本节点")
         rules.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(6, 0))
@@ -1181,7 +1179,6 @@ class MonitorPageMixin:
     def _refresh_icons(self):
         for child in list(self.icons_scroll.inner.winfo_children()):
             child.destroy()
-        self._icon_cells = []
         self._icon_imgs.clear()
         files = []
         for ext in ("*.png", "*.jpg", "*.jpeg", "*.bmp"):
@@ -1216,8 +1213,8 @@ class MonitorPageMixin:
                 cimg = None
             selected = bool(self.monitor_profile.template) and \
                 Path(self.monitor_profile.template).name == path.name
-            cell = ctk.CTkFrame(self.icons_scroll.inner, fg_color="transparent", width=96)
-            self._icon_cells.append(cell)
+            cell = ctk.CTkFrame(self.icons_scroll.inner, fg_color="transparent")
+            cell.grid(row=i // 5, column=i % 5, padx=3, pady=3, sticky="nsew")
             b = ctk.CTkButton(cell, text=path.stem[:12], image=cimg,
                               compound="top", width=88, height=96, fg_color=theme.CARD2,
                               hover_color=theme.LINE, font=(theme.FONT, theme.fs(9)),
@@ -1230,36 +1227,9 @@ class MonitorPageMixin:
                           command=lambda p=path: self._delete_icon_file(p)).pack(
                 fill="x", padx=4, pady=(3, 0))
         self._icon_cache = new_cache
-        self._layout_icons()
-
-
-    def _schedule_icon_layout(self):
-        job = getattr(self, "_icon_layout_job", None)
-        if job is not None:
-            try:
-                self.after_cancel(job)
-            except Exception:
-                pass
-        self._icon_layout_job = self.after(120, self._layout_icons)
-
-    def _layout_icons(self):
-        self._icon_layout_job = None
-        cells = getattr(self, "_icon_cells", None) or []
-        if not cells:
-            return
-        try:
-            avail = max(1, self.icons_scroll.canvas.winfo_width() - 4)
-        except Exception:
-            avail = 400
-        gap = 6
-        cols = max(1, int((avail + gap) // (96 + gap)))
-        for c in range(int(getattr(self, "_icon_cols", 0) or 0)):
-            self.icons_scroll.inner.grid_columnconfigure(c, weight=0)
-        self._icon_cols = cols
-        for c in range(cols):
+        for c in range(5):
             self.icons_scroll.inner.grid_columnconfigure(c, weight=1)
-        for idx, cell in enumerate(cells):
-            cell.grid(row=idx // cols, column=idx % cols, padx=3, pady=3, sticky="nsew")
+
 
     def _select_icon(self, path: Path):
         self._selected_icon = str(path)
